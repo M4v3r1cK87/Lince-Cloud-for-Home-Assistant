@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lince GoldCloud",
+        "description": "Accedi con le credenziali del tuo account Lince GoldCloud.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "auth_failed": "Autenticazione fallita. Controlla le credenziali."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Seleziona la centrale da configurare",
+        "data": {
+          "system": "Centrale"
+        }
+      },
+      "edit_details": {
+        "title": "Dettagli Centrale",
+        "description": "Centrale: {system_name}\n\nCome configurare i programmi della centrale:\n\n- Disattivazione (Disarm) è sempre disponibile.\n- Per ogni modalità di attivazione (In casa, Fuori casa, Notte, Vacanza) puoi associare uno o più programmi (G1, G2, G3, GEXT).\n- Solo le modalità con almeno un programma selezionato saranno disponibili nel pannello d’allarme.\n- Ogni modalità deve avere una combinazione di programmi diversa dalle altre.\n\nAttendere qualche secondo dopo l'inserimento del PIN per permettere alla centrale di confermare l'autorizzazione.\n\nSe non si viene autenticati, il codice è errato o si è verificato un problema di comunicazione. Ricontrollare e riprovare.\nAttenzione! Dopo 5 tentativi falliti, la centrale si blocca per 1 minuto.",
+        "data": {
+          "num_filari": "Numero zone filari",
+          "num_radio": "Numero zone radio",
+          "home": "In casa",
+          "away": "Fuori casa",
+          "night": "Notte",
+          "vacation": "Vacanza"
+        },
+        "data_description": {
+          "home": "Seleziona uno o più programmi per la modalità In casa",
+          "away": "Seleziona uno o più programmi per la modalità Fuori casa",
+          "night": "Seleziona uno o più programmi per la modalità Notte",
+          "vacation": "Seleziona uno o più programmi per la modalità Vacanza"
+        }
+      }
+    },
+    "error": {
+      "duplicate_profiles": "Due o più modalità di attivazione hanno la stessa combinazione di programmi. Configura combinazioni diverse oppure lascia vuota una modalità per disattivarla.",
+      "duplicate_profile": "Questa modalità ha una combinazione di programmi duplicata."
+    }
+  }
+}

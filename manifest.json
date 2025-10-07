@@ -1,0 +1,14 @@
+{
+  "domain": "lince_cloud",
+  "name": "Lince Cloud for Home Assistant",
+  "version": "1.0.0",
+  "documentation": "https://www.lince.net/",
+  "requirements": [
+    "aiohttp",
+    "python-socketio[asyncio_client]"
+  ],
+  "dependencies": ["switch"],
+  "codeowners": ["@M4v3r1cK87"],
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}

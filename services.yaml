@@ -1,0 +1,40 @@
+reload:
+  name: Ricarica integrazione
+  description: Ricarica l'integrazione LinceCloud senza riavviare Home Assistant
+
+sync_zones:
+  name: Sincronizza zone
+  description: Forza la sincronizzazione delle zone dalla centrale
+  fields:
+    centrale_id:
+      name: ID Centrale
+      description: ID della centrale da sincronizzare (opzionale, se omesso sincronizza tutte)
+      required: false
+      example: "11205"
+      selector:
+        text:
+
+reset_alarm_memory:
+  name: Reset memoria allarmi
+  description: Resetta la memoria allarmi di tutte le zone
+  fields:
+    centrale_id:
+      name: ID Centrale  
+      description: ID della centrale su cui operare
+      required: true
+      example: "11205"
+      selector:
+        text:
+
+force_websocket_restart:
+  name: Riavvia WebSocket
+  description: Forza il riavvio della connessione WebSocket
+  fields:
+    centrale_id:
+      name: ID Centrale
+      description: ID della centrale di cui riavviare il WebSocket
+      required: true
+      example: "11205"
+      selector:
+        text:
+        
