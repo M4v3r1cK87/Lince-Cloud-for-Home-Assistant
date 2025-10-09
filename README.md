@@ -8,7 +8,10 @@ Integrazione personalizzata per Home Assistant che permette il controllo e monit
 
 > ⚠️ **IMPORTANTE**: Questa integrazione richiede l'installazione di un certificato SSL per funzionare correttamente. Vedi la sezione [Configurazione Certificato SSL](#️-pre-requisito-configurazione-certificato-ssl).
 > 
-> ⚠️ **IMPORTANTE**: Questa integrazione utilizza il protocollo di comunicazione WebSocket per tutte le funzioni di comunicazioni, aggiornamento sensori e gestione del pannello di allarme. Quando la comunicazione WebSocket è attiva, il servizio Lince Cloud non potrà essere utilizzato, in quanto è possibile una sola connessione WebSocket alla volta. Stessa cosa per il servizio cloud web, se la comunicazione è attiva con il servizio, i messaggi da/verso la centrale non funzioneranno.
+> ⚠️ **IMPORTANTE**: Questa integrazione utilizza il protocollo di comunicazione WebSocket per tutte le funzioni di comunicazioni, aggiornamento sensori e gestione del pannello di allarme. Quando la comunicazione WebSocket è attiva, il servizio Lince Cloud non potrà essere utilizzato, in quanto è possibile una sola connessione WebSocket alla volta. Stessa cosa per il servizio cloud web, se la comunicazione è attiva con il servizio, i messaggi in Home Assistant da/verso la centrale non funzioneranno.
+> 
+> ⚠️ **IMPORTANTE**: Questa integrazione funziona solo con centrali Lince EuroPlus. 
+Al momento non sono supportate le centrali Gold/Tosca (si ricercano beta tester).
 
 ## 🌟 Caratteristiche Principali
 
