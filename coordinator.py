@@ -46,7 +46,7 @@ class GoldCloudCoordinator(DataUpdateCoordinator):
         )
 
     def _get_counts_for_system(self, system_id: int):
-        cfg = self.systems_config.get(system_id, {})
+        cfg = self.systems_config.get(str(system_id), {})
         _LOGGER.debug(f"Configurazione per sistema {system_id}: {cfg}")
         nf = int(cfg.get("num_filari", DEFAULT_FILARI))
         nr = int(cfg.get("num_radio", DEFAULT_RADIO))

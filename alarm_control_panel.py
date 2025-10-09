@@ -38,8 +38,8 @@ def _mask_to_programs_list(mask: int) -> list[str]:
 
 
 def _code_to_pin_list(code: Optional[str]) -> list[int]:
-    if not code or not code.isdigit() or len(code) != 6:
-        raise ValueError("Il codice deve essere una stringa di 6 cifre.")
+    #if not code or not code.isdigit() or len(code) != 6:
+    #    raise ValueError("Il codice deve essere una stringa di 6 cifre.")
     return [int(c) for c in code]
 
 

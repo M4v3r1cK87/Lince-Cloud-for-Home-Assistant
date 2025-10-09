@@ -624,12 +624,12 @@ class LinceSocketClient:
 
     async def async_send_pin(self, pin: list[int]) -> None:
         """Invia il login (type=251) con payload di esattamente 6 cifre 0..9."""
-        if (
-            not isinstance(pin, list)
-            or len(pin) != 6
-            or any(not isinstance(d, int) or d < 0 or d > 9 for d in pin)
-        ):
-            raise ValueError("PIN non valido: servono esattamente 6 cifre (int 0..9)")
+        #if (
+        #    not isinstance(pin, list)
+        #    or len(pin) != 6
+        #    or any(not isinstance(d, int) or d < 0 or d > 9 for d in pin)
+        #):
+        #    raise ValueError("PIN non valido: servono esattamente 6 cifre (int 0..9)")
         msg = json.dumps({"type": 251, "payload": pin}, separators=(",", ":"))
         try:
             await self.sio.emit(SEND_EVENT, msg, namespace=SOCKET_NAMESPACE)
