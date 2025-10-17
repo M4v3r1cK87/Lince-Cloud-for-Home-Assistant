@@ -113,13 +113,13 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
 
 #### Metodo 2: Installazione Manuale
 
-1. Scarica l'ultima release da [GitHub Releases](https://github.com/M4v3r1cK87/lince_cloud/releases)
-2. Estrai la cartella `lince_cloud` in `config/custom_components/`
+1. Scarica l'ultima release da [GitHub Releases](https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/releases)
+2. Estrai la cartella `Lince-Cloud-for-Home-Assistant` in `config/custom_components/`
 3. La struttura dovrebbe essere:
    ```
    config/
    ├── custom_components/
-   │   └── lince_cloud/
+   │   └── Lince-Cloud-for-Home-Assistant/
    │       ├── __init__.py
    │       ├── manifest.json
    │       └── ...
@@ -130,13 +130,13 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
 5. Vai in **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**
 6. Cerca **LinceCloud** e segui la procedura guidata
 
-#### Metodo 2: Git Clone
+#### Metodo 3: Git Clone
 
 ```bash
 cd /config/custom_components
-git clone https://github.com/M4v3r1cK87/lince_cloud.git
+git clone https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant.git
 # Copia il certificato
-cp lince_cloud/lince_cloud.pem /config/additional_ca/
+cp Lince-Cloud-for-Home-Assistant/lince_cloud.pem /config/additional_ca/
 ```
 
 ## ⚙️ Configurazione
@@ -208,7 +208,7 @@ Per verificare che tutto sia installato correttamente:
 
 2. **Integrazione**: Verifica la presenza dei file
    ```bash
-   ls -la /config/custom_components/lince_cloud/
+   ls -la /config/custom_components/Lince-Cloud-for-Home-Assistant/
    ```
 
 3. **Log**: Controlla i log per errori
@@ -245,9 +245,9 @@ Il certificato SSL incluso (`lince_cloud.pem`) è necessario per la comunicazion
 
 ## 📞 Supporto
 
-Per bug e feature request, apri una [issue su GitHub](https://github.com/M4v3r1cK87/lince_cloud/issues).
+Per bug e feature request, apri una [issue su GitHub](https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/issues).
 
-Per discussioni e supporto dalla community, partecipa alle [Discussions](https://github.com/M4v3r1cK87/lince_cloud/discussions).
+Per discussioni e supporto dalla community, partecipa alle [Discussions](https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/discussions).
 
 ---
 
