@@ -104,7 +104,7 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
 
 1. Assicurati che HACS sia installato (vedi [documentazione HACS](https://hacs.xyz/docs/setup/download)).
 2. Vai su HACS > Integrazioni > Menu (⋮) > Repositories personalizzati.
-3. Aggiungi il repository: `https://github.com/M4v3r1cK87/lince_cloud`.
+3. Aggiungi il repository: `https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant`
 4. Imposta la categoria su Integrazione e clicca su Aggiungi.
 5. Cerca "LinceCloud" in HACS e installalo.
 6. Riavvia Home Assistant.
