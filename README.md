@@ -74,7 +74,7 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
 
 #### Passo 1: Installa Additional CA Integration
 
-1. Installa HACS se non l'hai già fatto
+1. Installa HACS se non l'hai già fatto (vedi [documentazione HACS](https://hacs.xyz/docs/setup/download))
 2. In HACS, cerca e installa: [Additional CA Integration](https://github.com/Athozs/hass-additional-ca)
 3. Riavvia Home Assistant
 
@@ -85,7 +85,7 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
    mkdir /config/additional_ca
    ```
 
-2. Copia il certificato `lince_cloud.pem` dal repository nella cartella appena creata:
+2. Copia il file del certificato `lince_cloud.pem` dal repository nella cartella appena creata:
    ```bash
    cp lince_cloud.pem /config/additional_ca/
    ```
@@ -100,7 +100,18 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
 
 ### Installazione dell'integrazione
 
-#### Metodo 1: Installazione Manuale (Raccomandato)
+#### Metodo 1: Installazione tramite HACS (Raccomandato)
+
+1. Assicurati che HACS sia installato (vedi [documentazione HACS](https://hacs.xyz/docs/setup/download)).
+2. Vai su HACS > Integrazioni > Menu (⋮) > Repositories personalizzati.
+3. Aggiungi il repository: `https://github.com/M4v3r1cK87/lince_cloud`.
+4. Imposta la categoria su Integrazione e clicca su Aggiungi.
+5. Cerca "LinceCloud" in HACS e installalo.
+6. Riavvia Home Assistant.
+7. Vai in **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**.
+8. Cerca **LinceCloud** e segui la procedura guidata.
+
+#### Metodo 2: Installazione Manuale
 
 1. Scarica l'ultima release da [GitHub Releases](https://github.com/M4v3r1cK87/lince_cloud/releases)
 2. Estrai la cartella `lince_cloud` in `config/custom_components/`

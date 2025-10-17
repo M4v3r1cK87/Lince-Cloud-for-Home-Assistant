@@ -257,6 +257,7 @@ class LinceGoldCloudOptionsFlow(OptionsFlowWithReload):
 
             # Nessun duplicato -> salvataggio
             systems_config[sid] = {"num_filari": nfil, "num_radio": nrad}
+            _LOGGER.debug("Scrivo configurazione di sistema: %s -> %s", sid, systems_config[sid])
             arm_profiles[sid] = selected
 
             new_options = dict(self._entry.options)

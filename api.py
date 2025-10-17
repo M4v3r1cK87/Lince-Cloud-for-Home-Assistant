@@ -236,6 +236,7 @@ class GoldCloudAPI:
                 _LOGGER.debug(f"[{cb_row_id}] Inizio parsing zone/sensori")
                 zone_dict_filare = self.zone_sensors.get(cb_row_id, {}).get("filare", {})
                 zone_dict_radio = self.zone_sensors.get(cb_row_id, {}).get("radio", {})
+                _LOGGER.debug(f"[{cb_row_id}] Zone filari: {zone_dict_filare}, Zone radio: {zone_dict_radio}")
 
                 self._europlusParser.parse(message)
 
@@ -268,6 +269,7 @@ class GoldCloudAPI:
                         if s:
                             attributes = convert_zone_attributes("radio", ingressi_radio[idx])
                             s.update_attributes("radio", attributes)
+                            _LOGGER.debug(f"[{cb_row_id}] Zona radio {idx+1} aggiornata: {attributes}")
 
                 # Stato centrale -> usa il contenitore persistente self.buscomm_sensors
                 if cb_row_id not in self.buscomm_sensors:
