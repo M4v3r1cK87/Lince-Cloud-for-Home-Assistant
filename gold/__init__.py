@@ -1,0 +1,1 @@
+"""Lince Gold implementation."""

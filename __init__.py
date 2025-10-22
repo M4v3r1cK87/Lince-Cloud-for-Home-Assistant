@@ -1,37 +1,74 @@
-from .api import GoldCloudAPI
-from .coordinator import GoldCloudCoordinator
+"""Integrazione LinceCloud per Home Assistant."""
+from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
-
 from .const import DOMAIN
+from .factory import ComponentFactory
 import logging
 import asyncio
 import voluptuous as vol
+
 _LOGGER = logging.getLogger(__name__)
 
 platforms = ["sensor", "switch", "binary_sensor", "alarm_control_panel"]
 
-async def async_setup_entry(hass, config_entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Set up LinceCloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-
-    # Inizializza il flag delle notifiche a True (verrà sovrascritto dallo switch quando carica)
     hass.data[DOMAIN]["notifications_enabled"] = {}
     
     email = config_entry.data["email"]
     password = config_entry.data["password"]
 
-    api = GoldCloudAPI(hass, email, password)
+    # API comune per login iniziale e fetch systems
+    from .common.api import CommonAPI
+    common_api = CommonAPI(hass, email, password)
     
-    # Tenta il login iniziale senza bloccare il setup
+    # Variabili per gestire brand e sistemi
+    brands_count = {}
+    systems = []
+    primary_brand = "lince-europlus"  # Default
+    
     try:
-        await api.login(email, password)
+        # Login iniziale
+        await common_api.login(email, password)
         _LOGGER.info("Login iniziale completata con successo")
+        
+        # Fetch systems per determinare i brand
+        systems = await common_api.fetch_systems() or []
+        
+        # Conta i brand presenti
+        for system in systems:
+            brand = ComponentFactory.get_brand_from_system(system)
+            brands_count[brand] = brands_count.get(brand, 0) + 1
+            # Aggiungi il brand al sistema per uso futuro
+            system["_detected_brand"] = brand
+        
+        # Determina il brand primario (quello con più sistemi)
+        if brands_count:
+            primary_brand = max(brands_count, key=brands_count.get)
+            _LOGGER.info(f"Brand rilevati: {brands_count}. Primario: {primary_brand}")
+        
     except Exception as e:
-        _LOGGER.warning("Login iniziale fallita: %s. L'integrazione riproverà automaticamente", e)
-        # Non bloccare il setup - il coordinator gestirà i retry
-
-    coordinator = GoldCloudCoordinator(hass, api, config_entry)
+        _LOGGER.warning("Login iniziale fallita o impossibile recuperare sistemi: %s", e)
+        # Continua con default brand
+    
+    # Crea API e Coordinator specifici per il brand primario
+    api = ComponentFactory.get_api(primary_brand, hass, email, password)
+    
+    # Trasferisci token se disponibile
+    if hasattr(common_api, 'token') and common_api.token:
+        api.token = common_api.token
+        api.token_expiry = common_api.token_expiry
+    
+    # Crea coordinator per il brand primario
+    coordinator = ComponentFactory.get_coordinator(primary_brand, hass, api, config_entry)
+    
+    # Salva informazioni sui brand per uso futuro
+    hass.data[DOMAIN]["brands_count"] = brands_count
+    hass.data[DOMAIN]["primary_brand"] = primary_brand
+    hass.data[DOMAIN]["systems"] = systems
     
     # Non bloccare se il primo refresh fallisce
     try:
@@ -41,28 +78,29 @@ async def async_setup_entry(hass, config_entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN]["api"] = api
     hass.data[DOMAIN]["coordinator"] = coordinator
-    _LOGGER.info("LinceCloud config entry setup completed")
+    
+    _LOGGER.info(f"LinceCloud setup completato. Brand primario: {primary_brand}")
 
-     # Registra i servizi se non sono già registrati
+    # Registra i servizi se non sono già registrati
     if not hass.services.has_service(DOMAIN, "reload"):
         await _async_setup_services(hass)
     
-    # Registra il servizio di reload una sola volta
+    # Servizio reload systems
     async def handle_reload_service(call):
-        _LOGGER.info("Manual reload of GoldCloud systems triggered")
+        _LOGGER.info("Manual reload of LinceCloud systems triggered")
         await coordinator.async_request_refresh()
 
     hass.services.async_register(
         DOMAIN, "reload_system", handle_reload_service
     )
     
-    # Nuovo servizio per fermare tutte le socket
+    # Servizio stop tutte le socket
     async def handle_stop_all_sockets(call):
         """Ferma TUTTE le socket attive."""
         _LOGGER.info("Richiesta STOP di TUTTE le socket LinceCloud")
         api = hass.data[DOMAIN].get("api")
-        if api:
-            for row_id in list(api.socket_clients.keys()):
+        if api and hasattr(api, '_socket_clients'):
+            for row_id in list(api._socket_clients.keys()):
                 _LOGGER.info(f"Fermando socket {row_id}")
                 await api.stop_socket_connection(row_id)
         _LOGGER.info("Tutte le socket LinceCloud sono state fermate")
@@ -71,32 +109,35 @@ async def async_setup_entry(hass, config_entry: ConfigEntry) -> bool:
         DOMAIN, "stop_all_sockets", handle_stop_all_sockets
     )
 
-    # Registra handler per chiusura pulita al shutdown
+    # Handler per chiusura pulita al shutdown
     async def handle_homeassistant_stop(event):
         """Chiudi tutte le socket quando HA si ferma."""
         _LOGGER.info("Home Assistant in chiusura, chiudo tutte le socket...")
-        if "api" in hass.data[DOMAIN]:
+        api = hass.data[DOMAIN].get("api")
+        if api and hasattr(api, 'close_all_sockets'):
             try:
-                await hass.data[DOMAIN]["api"].close_all_sockets()
+                await api.close_all_sockets()
                 _LOGGER.info("Tutte le socket chiuse correttamente")
             except Exception as e:
                 _LOGGER.error(f"Errore durante la chiusura delle socket: {e}")
     
-    # Registra l'handler per gli eventi di stop
     hass.bus.async_listen_once("homeassistant_stop", handle_homeassistant_stop)
 
+    # Setup delle piattaforme
     await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
 
     return True
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Scarica l'integrazione e chiudi tutte le socket."""
     _LOGGER.info("Scaricamento integrazione LinceCloud...")
     
     # Chiudi tutte le socket prima di scaricare
-    if "api" in hass.data[DOMAIN]:
+    api = hass.data[DOMAIN].get("api")
+    if api and hasattr(api, 'close_all_sockets'):
         try:
-            await hass.data[DOMAIN]["api"].close_all_sockets()
+            await api.close_all_sockets()
             _LOGGER.info("Socket chiuse durante unload")
         except Exception as e:
             _LOGGER.error(f"Errore chiusura socket durante unload: {e}")
@@ -106,6 +147,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if coordinator and hasattr(coordinator, "_retry_task") and coordinator._retry_task:
         coordinator._retry_task.cancel()
     
+    # Scarica le piattaforme
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
 
     if unload_ok:
@@ -113,14 +155,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     return unload_ok
 
+
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry):
     """Options changed: aggiorna il coordinator senza ricaricare l'entry."""
     _LOGGER.info("Options changed for %s: refreshing only", entry.entry_id)
     coord = hass.data[DOMAIN].get("coordinator")
     if coord:
-        # Riporta dentro al coordinator le nuove opzioni per-centrale
+        # Aggiorna le opzioni nel coordinator
         coord.systems_config = entry.options.get("systems_config", {})
+        coord.arm_profiles = entry.options.get("arm_profiles", {})
         await coord.async_request_refresh()
+
 
 async def _async_setup_services(hass: HomeAssistant) -> None:
     """Registra i servizi dell'integrazione."""
@@ -128,7 +173,6 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     async def handle_reload(call):
         """Gestisce il servizio di reload."""
         _LOGGER.info("Ricaricamento integrazione LinceCloud richiesto")
-        # Ricarica tutte le entry
         for entry in hass.config_entries.async_entries(DOMAIN):
             await hass.config_entries.async_reload(entry.entry_id)
     
@@ -137,7 +181,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         centrale_id = call.data.get("centrale_id")
         _LOGGER.info(f"Sincronizzazione zone richiesta per centrale: {centrale_id or 'tutte'}")
         
-        coordinator = hass.data[DOMAIN]["coordinator"]
+        coordinator = hass.data[DOMAIN].get("coordinator")
         if coordinator:
             await coordinator.async_request_refresh()
     
@@ -146,31 +190,36 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         centrale_id = call.data.get("centrale_id")
         _LOGGER.info(f"Reset memoria allarmi per centrale: {centrale_id}")
         
-        # Implementa la logica per resettare la memoria
-        api = hass.data[DOMAIN]["api"]
+        api = hass.data[DOMAIN].get("api")
         if api and hasattr(api, 'zone_sensors'):
-            if centrale_id in api.zone_sensors:
-                # Reset degli attributi delle zone
-                for zone_type in ['filare', 'radio']:
-                    for zone_num, zone_entity in api.zone_sensors[centrale_id].get(zone_type, {}).items():
-                        if zone_entity:
-                            # Resetta gli attributi di memoria
-                            if hasattr(zone_entity, '_attr_extra_state_attributes'):
+            try:
+                centrale_int = int(centrale_id) if centrale_id else None
+                if centrale_int and centrale_int in api.zone_sensors:
+                    for zone_type in ['filare', 'radio']:
+                        zones = api.zone_sensors[centrale_int].get(zone_type, {})
+                        for zone_num, zone_entity in zones.items():
+                            if zone_entity and hasattr(zone_entity, '_attr_extra_state_attributes'):
                                 zone_entity._attr_extra_state_attributes['Memoria Allarme'] = False
                                 zone_entity._attr_extra_state_attributes['Memoria 24h'] = False
-                                zone_entity.safe_update()
+                                if hasattr(zone_entity, 'safe_update'):
+                                    zone_entity.safe_update()
+            except Exception as e:
+                _LOGGER.error(f"Errore reset memoria allarmi: {e}")
     
     async def handle_force_websocket_restart(call):
         """Riavvia forzatamente il WebSocket."""
         centrale_id = call.data.get("centrale_id")
         _LOGGER.info(f"Riavvio WebSocket per centrale: {centrale_id}")
         
-        api = hass.data[DOMAIN]["api"]
-        if api:
+        api = hass.data[DOMAIN].get("api")
+        if api and hasattr(api, 'stop_socket_connection'):
             try:
-                await api.stop_socket_connection(int(centrale_id))
-                await asyncio.sleep(2)
-                await api.start_socket_connection(int(centrale_id))
+                centrale_int = int(centrale_id) if centrale_id else None
+                if centrale_int:
+                    await api.stop_socket_connection(centrale_int)
+                    await asyncio.sleep(2)
+                    if hasattr(api, 'start_socket_connection'):
+                        await api.start_socket_connection(centrale_int)
             except Exception as e:
                 _LOGGER.error(f"Errore riavvio WebSocket: {e}")
     
@@ -179,3 +228,4 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "sync_zones", handle_sync_zones)
     hass.services.async_register(DOMAIN, "reset_alarm_memory", handle_reset_alarm_memory)
     hass.services.async_register(DOMAIN, "force_websocket_restart", handle_force_websocket_restart)
+    

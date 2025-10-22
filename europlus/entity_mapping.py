@@ -1,3 +1,6 @@
+"""Entity mapping per Lince Europlus."""
+
+# System keys specifiche Europlus
 SENSOR_SYSTEM_KEYS = [
      "id"
     ,"id_centrale"
@@ -12,9 +15,9 @@ SENSOR_SYSTEM_KEYS = [
     ,"model"
     ,"brand"
     ,"owner"
-    ,"goldstate"
 ]
 
+# Access keys Europlus
 SENSOR_ACCESS_KEYS = [
      "g1"
     ,"g2"
@@ -31,11 +34,13 @@ SENSOR_ACCESS_KEYS = [
     ,"update_time"
 ]
 
+# Binary sensor keys Europlus
 BINARYSENSOR_SYSTEM_KEYS = [
      "connesso"
     ,"valid"
 ]
 
+# Status centrale mapping SPECIFICO Europlus
 STATUSCENTRALE_MAPPING = {
     "firmwareVersion": {"entity_type": "sensor", "friendly_name": "Rel. SW Centrale"},
     "temperature": {"entity_type": "sensor", "friendly_name": "Temperatura", "device_class": "temperature", "state_class": "measurement", "unit_of_measurement": "°C"},
