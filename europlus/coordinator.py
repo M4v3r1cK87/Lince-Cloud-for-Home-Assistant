@@ -209,3 +209,4 @@ class EuroplusCoordinator(BaseCoordinator):
         """Riprendi gli update automatici."""
         self._pause_auto_update = False
         _LOGGER.debug("Update automatici Europlus ripresi")
+        

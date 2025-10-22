@@ -4,14 +4,14 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
-from ..common.api import BaseLinceAPI
+from ..common.api import CommonAPI
 from .socket_client import GoldSocketClient
 from .parser import GoldStateParser, GoldPhysicalMapParser
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class GoldAPI(BaseLinceAPI):
+class GoldAPI(CommonAPI):
     """API client specifically for Gold centrals."""
     
     def __init__(self, hass, email: str, password: str):
@@ -107,52 +107,6 @@ class GoldAPI(BaseLinceAPI):
         # TODO: Implement HTTP fallback if socket not available
         return None
     
-    async def arm_gold(self, centrale_id: int, pin: str, g1: bool, g2: bool, g3: bool) -> bool:
-        """Arm Gold central."""
-        try:
-            socket = self._socket_clients.get(centrale_id)
-            if not socket:
-                _LOGGER.error(f"No socket for Gold central {centrale_id}")
-                return False
-            
-            # Send PIN
-            await socket.send_gold_pin(pin)
-            
-            # Wait a bit
-            await asyncio.sleep(0.5)
-            
-            # Send arm command
-            await socket.send_gold_arm(g1, g2, g3)
-            
-            return True
-            
-        except Exception as e:
-            _LOGGER.error(f"Error arming Gold: {e}", exc_info=True)
-            return False
-    
-    async def disarm_gold(self, centrale_id: int, pin: str) -> bool:
-        """Disarm Gold central."""
-        try:
-            socket = self._socket_clients.get(centrale_id)
-            if not socket:
-                _LOGGER.error(f"No socket for Gold central {centrale_id}")
-                return False
-            
-            # Send PIN
-            await socket.send_gold_pin(pin)
-            
-            # Wait a bit
-            await asyncio.sleep(0.5)
-            
-            # Send disarm (all false)
-            await socket.send_gold_arm(False, False, False)
-            
-            return True
-            
-        except Exception as e:
-            _LOGGER.error(f"Error disarming Gold: {e}", exc_info=True)
-            return False
-    
     def get_debug_info(self, centrale_id: int) -> Dict:
         """Get debug info for Gold central."""
         socket = self._socket_clients.get(centrale_id)
@@ -166,8 +120,8 @@ class GoldAPI(BaseLinceAPI):
             "cached_state": self._states_cache.get(centrale_id, {}),
             "parser_state": {
                 "armed": self._state_parser.is_armed(),
-                "problems": self._state_parser.get_problemi_sistema(),
-                "open_zones": self._state_parser.get_zone_aperte()
+                "problems": self._state_parser.get_system_problems(),
+                "open_zones": self._state_parser.get_open_zones()
             }
         }
     
