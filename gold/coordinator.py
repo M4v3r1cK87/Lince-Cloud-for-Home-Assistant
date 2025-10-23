@@ -2,7 +2,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
@@ -11,6 +11,7 @@ from ..utils import send_persistent_notification, dismiss_persistent_notificatio
 from ..const import DOMAIN, RETRY_INTERVAL, MAX_RETRY_INTERVAL, INITIAL_RETRY_INTERVAL
 from ..common.base_coordinator import BaseCoordinator
 from .api import GoldAPI
+from .const import DEFAULT_FILARI, DEFAULT_RADIO
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +37,9 @@ class GoldCoordinator(BaseCoordinator):
         if "systems_config" in config_entry.data:
             self.systems_config = config_entry.data["systems_config"]
             _LOGGER.debug(f"GoldCoordinator: Loaded systems config: {self.systems_config}")
+        elif "systems_config" in config_entry.options:
+            self.systems_config = config_entry.options["systems_config"]
+            _LOGGER.debug(f"GoldCoordinator: Loaded systems config from options: {self.systems_config}")
         
         self.Email = config_entry.data["email"]
         self.Password = config_entry.data["password"]
@@ -53,11 +57,31 @@ class GoldCoordinator(BaseCoordinator):
         
         _LOGGER.info("GoldCoordinator initialized")
 
-    async def _async_update_data(self) -> Dict[str, Any]:
+    def _get_counts_for_system(self, system: dict) -> Tuple[int, int]:
+        """
+        Ritorna il numero di zone filari e radio per un sistema.
+        """
+        row_id = system.get("id")
+        if not row_id:
+            return DEFAULT_FILARI, DEFAULT_RADIO
+        
+        # Cerca prima in options (priorità), poi in data
+        config = self.config_entry.options.get("systems_config", {}).get(str(row_id), {})
+        if not config:
+            config = self.config_entry.data.get("systems_config", {}).get(str(row_id), {})
+        
+        # Se non c'è config salvata, usa defaults Gold
+        num_filari = int(config.get("num_filari", DEFAULT_FILARI))  # Default Gold: 0
+        num_radio = int(config.get("num_radio", DEFAULT_RADIO))   # Default Gold: 0
+        
+        _LOGGER.debug(f"GoldCoordinator: System {row_id} zone counts: filari={num_filari}, radio={num_radio}")
+        return (num_filari, num_radio)
+
+    async def _async_update_data(self) -> list[dict]:
         """Fetch data from Gold API."""
         if self._pause_auto_update:
             _LOGGER.debug("Update automatico Gold in pausa, salto questo ciclo")
-            return self.data or {"systems": [], "states": {}}
+            return self.data or []
 
         try:
             _LOGGER.debug("GoldCoordinator: Starting update cycle")
@@ -85,8 +109,6 @@ class GoldCoordinator(BaseCoordinator):
                 try:
                     system_id = system.get("id")
                     centrale_id = system.get("IdCentrale")
-
-                    _LOGGER.debug(f"Gold system {system_id} - System data: {system}")
                     
                     if not centrale_id:
                         _LOGGER.warning(f"Sistema senza IdCentrale: {system}")
@@ -98,25 +120,11 @@ class GoldCoordinator(BaseCoordinator):
                         access_data = await self.api.fetch_system_access(system_id)
                         system["access_data"] = access_data
                         _LOGGER.debug(f"Access data for centrale {centrale_id}: {access_data}")
-                    
-                    # IDENTICO A EUROPLUS - Applica config zone da config_entry
-                    if str(system_id) in self.systems_config:
-                        config = self.systems_config[str(system_id)]
-                        _LOGGER.debug(f"Applying config for system {system_id}: {config}")
-                        
-                        num_filari = config.get("num_filari", 8)
-                        num_radio = config.get("num_radio", 32)
-                        
-                        # Se Gold ha un parser zone specifico, usalo qui
-                        # Altrimenti usa quello che ritorna access_data
-                        system["num_filari"] = num_filari
-                        system["num_radio"] = num_radio
-                        
-                        # Se c'è uno store nella access_data, parsalo
+
+                    # Se c'è uno store nella access_data, parsalo
                         if system.get("access_data") and "store" in system.get("access_data", {}):
-                            # TODO: Qui andrebbe il parser zone specifico per Gold
-                            # Per ora lascio come placeholder
-                            _LOGGER.debug(f"Gold system {system_id} has store data")
+                            _LOGGER.debug(f"Gold system {system_id} has store data: {system['access_data']['store']}")
+                            num_filari, num_radio = self._get_counts_for_system(system_id)                        
                     
                     # Avvia socket per centrale Gold (questa è la differenza con Europlus)
                     if centrale_id not in self._socket_tasks:
@@ -129,25 +137,6 @@ class GoldCoordinator(BaseCoordinator):
                 except Exception as e:
                     _LOGGER.error(f"Errore gestione sistema {system.get('id')}: {e}")
             
-            # 4. Recupera stati dalla cache dei socket
-            states = {}
-            for system in systems:
-                centrale_id = system.get("IdCentrale")
-                if centrale_id:
-                    state = self.api.get_cached_state(centrale_id)
-                    if state:
-                        states[centrale_id] = state
-                        _LOGGER.debug(f"GoldCoordinator: Got cached state for centrale {centrale_id}")
-                    else:
-                        _LOGGER.debug(f"GoldCoordinator: No cached state yet for centrale {centrale_id}")
-            
-            # 5. Prepara risultato - IDENTICO A EUROPLUS
-            result = {
-                "systems": systems,
-                "states": states,
-                "brand": "gold"
-            }
-            
             # Update riuscito - IDENTICO A EUROPLUS
             self._last_successful_update = datetime.now()
             self._retry_count = 0
@@ -158,8 +147,8 @@ class GoldCoordinator(BaseCoordinator):
                 self._connection_failed = False
                 self._was_offline = False
             
-            _LOGGER.debug(f"GoldCoordinator: Update completed - {len(systems)} systems, {len(states)} states")
-            return result
+            _LOGGER.debug(f"GoldCoordinator: Update completed - {len(systems)} systems - Systems: {systems}")
+            return systems
             
         except Exception as e:
             _LOGGER.error(f"Errore durante update Gold: {e}", exc_info=True)
