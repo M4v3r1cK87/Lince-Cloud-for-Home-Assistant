@@ -2,7 +2,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from ..utils import send_persistent_notification, dismiss_persistent_notification, send_notification
 from ..const import DOMAIN, RETRY_INTERVAL, MAX_RETRY_INTERVAL, INITIAL_RETRY_INTERVAL
 from ..common.base_coordinator import BaseCoordinator
-from .api import GoldAPI
 from .const import DEFAULT_FILARI, DEFAULT_RADIO
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,125 +18,101 @@ _LOGGER = logging.getLogger(__name__)
 class GoldCoordinator(BaseCoordinator):
     """Coordinator specific to Lince Gold."""
     
-    def __init__(self, hass: HomeAssistant, api: GoldAPI, config_entry):
+    def __init__(self, hass: HomeAssistant, api, config_entry):
         """Initialize Gold coordinator."""
-        # Inizializza la classe base - STESSO INTERVAL DI EUROPLUS
+        # Inizializza la classe base - IDENTICO A EUROPLUS
         super().__init__(
             hass, 
             api, 
             config_entry,
-            update_interval=timedelta(seconds=10)  # STESSO DI EUROPLUS
+            update_interval=timedelta(seconds=10)
         )
         
+        # IDENTICO A EUROPLUS - NO SOCKET MANAGEMENT QUI
         self.socket_messages = {}
-        self._socket_tasks = {}
         
-        # STESSA LOGICA EUROPLUS - Legge configurazione zone da config_entry
+        # IDENTICO A EUROPLUS - Converti le chiavi stringa in interi per systems_config
+        raw_systems_config = config_entry.options.get("systems_config", {})
         self.systems_config = {}
-        if "systems_config" in config_entry.data:
-            self.systems_config = config_entry.data["systems_config"]
-            _LOGGER.debug(f"GoldCoordinator: Loaded systems config: {self.systems_config}")
-        elif "systems_config" in config_entry.options:
-            self.systems_config = config_entry.options["systems_config"]
-            _LOGGER.debug(f"GoldCoordinator: Loaded systems config from options: {self.systems_config}")
+        
+        for key, value in raw_systems_config.items():
+            try:
+                int_key = int(key)
+                self.systems_config[int_key] = value
+                _LOGGER.debug(f"Gold: Convertita chiave '{key}' (str) -> {int_key} (int): {value}")
+            except (ValueError, TypeError):
+                _LOGGER.warning(f"Gold: Impossibile convertire chiave '{key}' in intero")
+                self.systems_config[key] = value
         
         self.Email = config_entry.data["email"]
         self.Password = config_entry.data["password"]
         
-        # Retry mechanism - IDENTICO A EUROPLUS
+        # IDENTICO A EUROPLUS - Retry mechanism
         self._retry_task = None
         self._retry_count = 0
         self._last_successful_update = None
         self._connection_failed = False
         self._retry_interval = INITIAL_RETRY_INTERVAL
-        self._notification_id = "lincecloud_gold_connection_error"
+        self._notification_id = "lincecloud_gold_connection_error"  # Solo ID diverso
         self._was_offline = False
         self._pause_auto_update = False
         self._notification_cleanup_task = None
-        
-        _LOGGER.info("GoldCoordinator initialized")
+        self._row_id = None
 
-    def _get_counts_for_system(self, system: dict) -> Tuple[int, int]:
-        """
-        Ritorna il numero di zone filari e radio per un sistema.
-        """
-        row_id = system.get("id")
-        if not row_id:
+    def _get_counts_for_system(self, system_id: int) -> tuple:
+        """Get zone counts for a specific Gold system - IDENTICO A EUROPLUS."""
+        try:
+            sid_int = int(system_id)
+        except (ValueError, TypeError):
+            _LOGGER.error(f"Gold: system_id non valido: {system_id}")
             return DEFAULT_FILARI, DEFAULT_RADIO
         
-        # Cerca prima in options (priorità), poi in data
-        config = self.config_entry.options.get("systems_config", {}).get(str(row_id), {})
-        if not config:
-            config = self.config_entry.data.get("systems_config", {}).get(str(row_id), {})
+        cfg = self.systems_config.get(sid_int)
         
-        # Se non c'è config salvata, usa defaults Gold
-        num_filari = int(config.get("num_filari", DEFAULT_FILARI))  # Default Gold: 0
-        num_radio = int(config.get("num_radio", DEFAULT_RADIO))   # Default Gold: 0
+        if cfg is None:
+            _LOGGER.warning(
+                f"Gold: Nessuna configurazione trovata per centrale {sid_int}. "
+                f"Chiavi disponibili: {list(self.systems_config.keys())}"
+            )
+            return DEFAULT_FILARI, DEFAULT_RADIO
         
-        _LOGGER.debug(f"GoldCoordinator: System {row_id} zone counts: filari={num_filari}, radio={num_radio}")
-        return (num_filari, num_radio)
+        nf = int(cfg.get("num_filari", DEFAULT_FILARI))
+        nr = int(cfg.get("num_radio", DEFAULT_RADIO))
+        
+        _LOGGER.debug(f"Config Gold per centrale {sid_int}: filari={nf}, radio={nr}")
+        return nf, nr
 
     async def _async_update_data(self) -> list[dict]:
-        """Fetch data from Gold API."""
+        """Fetch data from Gold API - IDENTICO A EUROPLUS (SENZA SOCKET)."""
         if self._pause_auto_update:
-            _LOGGER.debug("Update automatico Gold in pausa, salto questo ciclo")
+            _LOGGER.debug("Gold: Update automatico in pausa, salto questo ciclo")
             return self.data or []
 
         try:
-            _LOGGER.debug("GoldCoordinator: Starting update cycle")
-            
-            # 1. Login se necessario - IDENTICO A EUROPLUS
-            if not self.api.is_authenticated():
-                _LOGGER.info("Token mancante o scaduto, eseguo login Gold...")
-                success = await self.api.login()
+            # IDENTICO A EUROPLUS - Check token e login
+            if not self.api.token:
+                _LOGGER.info("Gold: Token mancante, eseguo login...")
+                await self.api.login(self.Email, self.Password)
                 
-                if not success:
-                    raise UpdateFailed("Login Gold fallito")
-                
-                _LOGGER.info("Login Gold completato con successo")
-                
+                # Login riuscita, cancella notifica errore se presente
                 if self._connection_failed:
                     await self._clear_error_notification()
 
-            # 2. Fetch systems - IDENTICO A EUROPLUS
-            systems = await self.api.get_systems()
+            # IDENTICO A EUROPLUS - Fetch systems
+            systems = await self.api.fetch_systems()
             
-            _LOGGER.debug(f"GoldCoordinator: Found {len(systems)} Gold systems")
-            
-            # 3. Per ogni sistema - STESSA LOGICA EUROPLUS
+            # IDENTICO A EUROPLUS - Per ogni sistema, fetch access data
             for system in systems:
                 try:
-                    system_id = system.get("id")
-                    centrale_id = system.get("IdCentrale")
+                    self._row_id = system["id"]
+                    row_id = self._row_id
                     
-                    if not centrale_id:
-                        _LOGGER.warning(f"Sistema senza IdCentrale: {system}")
-                        continue
-                    
-                    # IDENTICO A EUROPLUS - Recupera access_data via REST
-                    if system_id:
-                        _LOGGER.debug(f"Fetching system_access for system {system_id}")
-                        access_data = await self.api.fetch_system_access(system_id)
-                        system["access_data"] = access_data
-                        _LOGGER.debug(f"Access data for centrale {centrale_id}: {access_data}")
-
-                    # Se c'è uno store nella access_data, parsalo
-                        if system.get("access_data") and "store" in system.get("access_data", {}):
-                            _LOGGER.debug(f"Gold system {system_id} has store data: {system['access_data']['store']}")
-                            num_filari, num_radio = self._get_counts_for_system(system_id)                        
-                    
-                    # Avvia socket per centrale Gold (questa è la differenza con Europlus)
-                    if centrale_id not in self._socket_tasks:
-                        _LOGGER.info(f"GoldCoordinator: Starting socket for centrale {centrale_id}")
-                        task = asyncio.create_task(
-                            self._manage_socket_connection(centrale_id)
-                        )
-                        self._socket_tasks[centrale_id] = task
-                    
+                    # IDENTICO A EUROPLUS - Fetch access data
+                    system["access_data"] = await self.api.fetch_system_access(row_id)                                            
                 except Exception as e:
-                    _LOGGER.error(f"Errore gestione sistema {system.get('id')}: {e}")
+                    _LOGGER.error(f"Gold: Errore processing sistema {system.get('id')}: {e}")
             
-            # Update riuscito - IDENTICO A EUROPLUS
+            # IDENTICO A EUROPLUS - Update riuscito
             self._last_successful_update = datetime.now()
             self._retry_count = 0
             self._retry_interval = INITIAL_RETRY_INTERVAL
@@ -146,66 +121,34 @@ class GoldCoordinator(BaseCoordinator):
                 await self._clear_error_notification()
                 self._connection_failed = False
                 self._was_offline = False
-            
-            _LOGGER.debug(f"GoldCoordinator: Update completed - {len(systems)} systems - Systems: {systems}")
+
+            _LOGGER.debug(f"Sistemi GOLD: {systems}")
             return systems
             
         except Exception as e:
-            _LOGGER.error(f"Errore durante update Gold: {e}", exc_info=True)
+            _LOGGER.error(f"Gold: Errore durante update: {e}")
             
-            # Gestione retry - IDENTICA A EUROPLUS
+            # IDENTICO A EUROPLUS - Gestione retry con backoff
             if not self._connection_failed:
                 self._connection_failed = True
                 await self._show_error_notification(str(e))
             
+            # Schedule retry
             if self._retry_task is None or self._retry_task.done():
                 self._retry_task = asyncio.create_task(self._schedule_retry())
             
+            # Ritorna dati cached se disponibili
             if self.data:
                 return self.data
             
-            raise UpdateFailed(f"Impossibile aggiornare dati Gold: {e}")
-
-    async def _manage_socket_connection(self, centrale_id: int):
-        """Manage socket connection for a centrale - SPECIFICO PER GOLD."""
-        try:
-            _LOGGER.info(f"Socket manager started for Gold centrale {centrale_id}")
-            
-            while True:
-                try:
-                    # Connetti socket attraverso l'API
-                    success = await self.api.connect_socket(centrale_id)
-                    
-                    if not success:
-                        _LOGGER.error(f"Failed to connect socket for centrale {centrale_id}")
-                        await asyncio.sleep(30)
-                        continue
-                    
-                    _LOGGER.info(f"Socket connected for Gold centrale {centrale_id}")
-                    
-                    # Aspetta che la connessione si chiuda
-                    while self.api.is_socket_connected(centrale_id):
-                        await asyncio.sleep(5)
-                    
-                    _LOGGER.warning(f"Socket disconnected for centrale {centrale_id}, will reconnect...")
-                    
-                except Exception as e:
-                    _LOGGER.error(f"Error in socket connection for centrale {centrale_id}: {e}")
-                
-                await asyncio.sleep(10)
-                
-        except asyncio.CancelledError:
-            _LOGGER.info(f"Socket manager cancelled for centrale {centrale_id}")
-            await self.api.disconnect_socket(centrale_id)
-            raise
-        except Exception as e:
-            _LOGGER.error(f"Fatal error in socket manager for centrale {centrale_id}: {e}")
+            raise UpdateFailed(f"Gold: Impossibile aggiornare dati: {e}")
 
     async def _schedule_retry(self):
-        """Schedule retry - IDENTICO A EUROPLUS."""
+        """IDENTICO A EUROPLUS - Schedule retry con exponential backoff."""
         try:
             await asyncio.sleep(self._retry_interval)
             
+            # Aumenta intervallo per prossimo retry (max 30 min)
             self._retry_interval = min(self._retry_interval * 2, MAX_RETRY_INTERVAL)
             self._retry_count += 1
             
@@ -213,10 +156,10 @@ class GoldCoordinator(BaseCoordinator):
             await self.async_request_refresh()
             
         except Exception as e:
-            _LOGGER.error(f"Errore durante retry Gold: {e}")
+            _LOGGER.error(f"Gold: Errore durante retry: {e}")
 
     async def _show_error_notification(self, error: str):
-        """Mostra notifica errore - IDENTICO A EUROPLUS."""
+        """IDENTICO A EUROPLUS - Mostra notifica errore connessione."""
         await send_persistent_notification(
             self.hass,
             f"Impossibile connettersi al cloud Lince Gold: {error}. "
@@ -226,52 +169,23 @@ class GoldCoordinator(BaseCoordinator):
         )
 
     async def _clear_error_notification(self):
-        """Rimuovi notifica errore - IDENTICO A EUROPLUS."""
+        """IDENTICO A EUROPLUS - Rimuovi notifica errore."""
         await dismiss_persistent_notification(self.hass, self._notification_id)
         
         if self._was_offline:
+            # Notifica ripristino connessione
             await send_notification(
                 self.hass,
                 "Connessione al cloud Lince Gold ripristinata",
                 "LinceCloud Gold Online"
             )
 
-    async def async_shutdown(self):
-        """Shutdown coordinator."""
-        _LOGGER.info("Shutting down Gold coordinator...")
-        
-        # Cancella task socket
-        for centrale_id, task in self._socket_tasks.items():
-            _LOGGER.debug(f"Cancelling socket task for centrale {centrale_id}")
-            task.cancel()
-        
-        if self._socket_tasks:
-            await asyncio.gather(*self._socket_tasks.values(), return_exceptions=True)
-        
-        # Disconnetti socket
-        await self.api.disconnect_all()
-        
-        _LOGGER.info("Gold coordinator shutdown complete")
-
     def pause_auto_update(self):
-        """Metti in pausa - IDENTICO A EUROPLUS."""
+        """IDENTICO A EUROPLUS - Metti in pausa gli update automatici."""
         self._pause_auto_update = True
-        _LOGGER.debug("Update automatici Gold in pausa")
+        _LOGGER.debug("Gold: Update automatici in pausa")
 
     def resume_auto_update(self):
-        """Riprendi - IDENTICO A EUROPLUS."""
+        """IDENTICO A EUROPLUS - Riprendi gli update automatici."""
         self._pause_auto_update = False
-        _LOGGER.debug("Update automatici Gold ripresi")
-    
-    def get_systems(self) -> List[Dict]:
-        """Get systems - IDENTICO A EUROPLUS."""
-        if self.data:
-            return self.data.get("systems", [])
-        return []
-    
-    def get_centrale_state(self, centrale_id: int) -> Optional[Dict]:
-        """Get state - IDENTICO A EUROPLUS."""
-        if self.data:
-            return self.data.get("states", {}).get(centrale_id)
-        return None
-    
+        _LOGGER.debug("Gold: Update automatici ripresi")

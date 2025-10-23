@@ -23,7 +23,7 @@ class GoldAPI(CommonAPI):
         self._state_parser = GoldStateParser()
         self._physical_map_parser = GoldPhysicalMapParser()
         
-        # Socket clients per centrale
+        # Socket clients per centrale - IDENTICO A EUROPLUS
         self._socket_clients: Dict[int, GoldSocketClient] = {}
         
         # Cache stati
@@ -32,39 +32,105 @@ class GoldAPI(CommonAPI):
         
         _LOGGER.info("GoldAPI initialized")
     
-    async def initialize_socket(self, centrale_id: int) -> bool:
-        """Initialize Gold socket for a specific central."""
+    def is_socket_connected(self, row_id: int) -> bool:
+        """Verifica se la socket è connessa per un sistema - IDENTICO A EUROPLUS."""
+        # Per Gold, row_id corrisponde all'IdCentrale
+        client = self._socket_clients.get(row_id)
+        return client.is_connected() if client else False
+
+    def get_socket_client(self, row_id: int) -> GoldSocketClient | None:
+        """Restituisce il client socket - IDENTICO A EUROPLUS."""
+        return self._socket_clients.get(row_id)
+
+    async def start_socket_connection(self, row_id: int):
+        """Avvia la connessione socket per un sistema - ADATTATO PER GOLD."""
+        _LOGGER.debug(f"Avvio connessione socket Gold per centrale {row_id}")
+        
         try:
-            if centrale_id in self._socket_clients:
-                _LOGGER.debug(f"Socket already exists for Gold central {centrale_id}")
-                return True
-            
-            # Create Gold socket client
-            socket_client = GoldSocketClient(
+            # Callback per connessione - IDENTICO A EUROPLUS
+            async def connect_callback(cb_row_id: int):
+                _LOGGER.info(f"[{cb_row_id}] Riconnesso alla socket Gold")
+
+            # Callback per disconnessione - IDENTICO A EUROPLUS
+            async def disconnect_callback(cb_row_id: int):
+                _LOGGER.warning(f"[{cb_row_id}] Disconnessione dalla socket Gold rilevata")
+
+            # Callback per messaggi - SPECIFICO PER GOLD
+            async def message_callback(cb_row_id: int, message):
+                _LOGGER.debug(f"[{cb_row_id}] Messaggio socket Gold ricevuto")
+                
+                # Usa i parser Gold per processare il messaggio
+                await self._on_gold_message(cb_row_id, message)
+
+            # Se il token è scaduto, login - IDENTICO A EUROPLUS
+            if self.is_token_expired():
+                _LOGGER.info("Token scaduto, provo login Gold")
+                try:
+                    await self.login(self._email, self._password)
+                except Exception as e:
+                    _LOGGER.warning("[socket %s] Login Gold fallita: %s", row_id, e)
+                    return False
+
+            # Se esiste già un client per questa centrale - IDENTICO A EUROPLUS
+            if row_id in self._socket_clients:
+                client = self._socket_clients[row_id]
+                if client.is_connected():
+                    _LOGGER.debug(f"Connessione socket Gold già avviata per {row_id}")
+                    return True
+                else:
+                    _LOGGER.info(f"Rimuovo client socket Gold non connesso per {row_id}")
+                    await client.stop()
+                    self._socket_clients.pop(row_id, None)
+
+            # Crea e avvia il nuovo client socket GOLD
+            client = GoldSocketClient(
                 token=self.token,
-                centrale_id=centrale_id,
-                message_callback=self._on_gold_message,
-                disconnect_callback=self._on_gold_disconnect,
-                connect_callback=self._on_gold_connect,
+                centrale_id=row_id,
+                message_callback=message_callback,
+                disconnect_callback=disconnect_callback,
+                connect_callback=connect_callback,
                 hass=self.hass,
                 api=self,
                 email=self._email,
                 password=self._password
             )
+
+            connected = await client.start()
+            if not connected:
+                _LOGGER.info(f"[{row_id}] Connessione Gold in corso...")
+                await asyncio.sleep(3)
+                if not client.is_connected():
+                    await client.stop()
+                    return False
+
+            self._socket_clients[row_id] = client
+            _LOGGER.info(f"Socket Gold {row_id} avviata con successo")
+            return True
             
-            # Start connection
-            success = await socket_client.start()
-            if success:
-                self._socket_clients[centrale_id] = socket_client
-                _LOGGER.info(f"Gold socket initialized for central {centrale_id}")
-                return True
-            else:
-                _LOGGER.error(f"Failed to initialize Gold socket for central {centrale_id}")
-                return False
-                
         except Exception as e:
-            _LOGGER.error(f"Error initializing Gold socket: {e}", exc_info=True)
+            _LOGGER.error(f"Errore avvio socket Gold {row_id}: {e}", exc_info=True)
             return False
+
+    async def stop_socket_connection(self, row_id: int):
+        """Ferma la connessione socket per un sistema - IDENTICO A EUROPLUS."""
+        client = self._socket_clients.get(row_id)
+        if client:
+            try:
+                await client.stop()
+                _LOGGER.info(f"Socket Gold {row_id} fermata")
+            except Exception as e:
+                _LOGGER.error(f"Errore durante stop socket Gold {row_id}: {e}")
+            finally:
+                if row_id in self._socket_clients:
+                    del self._socket_clients[row_id]
+        
+        # Pulisci cache stati
+        self._states_cache.pop(row_id, None)
+        _LOGGER.info(f"Socket Gold {row_id} completamente fermata")
+
+    async def initialize_socket(self, centrale_id: int) -> bool:
+        """Initialize Gold socket for a specific central - WRAPPER per compatibilità."""
+        return await self.start_socket_connection(centrale_id)
     
     async def _on_gold_message(self, centrale_id: int, message: Any):
         """Handle Gold socket messages."""
