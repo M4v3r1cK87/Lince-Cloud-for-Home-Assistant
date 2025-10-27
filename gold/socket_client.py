@@ -9,13 +9,10 @@ from datetime import datetime
 
 from ..common.socket_client import BaseSocketClient
 from .parser import GoldStateParser
+from ..const import API_SOCKET_IO_URL, DOMAIN
+from .const import SOCKET_NAMESPACE
 
 _LOGGER = logging.getLogger(__name__)
-
-# URL e namespace Gold (da determinare)
-GOLD_SOCKET_URL = "wss://cloud.linceapp.it:6701/socket.io"  # Stesso server di Europlus?
-GOLD_NAMESPACE = "/"  # Default namespace per ora
-
 
 class GoldSocketClient(BaseSocketClient):
     """Client Socket.IO specifico per centrali Gold con debug esteso."""
@@ -39,18 +36,18 @@ class GoldSocketClient(BaseSocketClient):
     def _build_connect_url(self) -> str:
         """URL specifico Gold."""
         # Assumo stesso pattern di Europlus per ora
-        url = f"{GOLD_SOCKET_URL}/?token={self.token}&system_id={self.centrale_id}"
+        url = f"{API_SOCKET_IO_URL}/?token={self.token}&system_id={self.centrale_id}"
         _LOGGER.debug(f"[{self.centrale_id}] Gold connect URL: {url}")
         return url
     
     def _get_namespace(self) -> str:
         """Namespace specifico Gold."""
-        _LOGGER.debug(f"[{self.centrale_id}] Gold namespace: {GOLD_NAMESPACE}")
-        return GOLD_NAMESPACE
+        _LOGGER.debug(f"[{self.centrale_id}] Gold namespace: {SOCKET_NAMESPACE}")
+        return SOCKET_NAMESPACE
     
     def _register_handlers(self):
         """Registra TUTTI gli handler possibili per debug massivo."""
-        namespace = GOLD_NAMESPACE
+        namespace = SOCKET_NAMESPACE
         
         # Handler base
         self.sio.on("connect", self.on_connect, namespace=namespace)
@@ -91,7 +88,7 @@ class GoldSocketClient(BaseSocketClient):
         self._reconnect_backoff = 2.0
         
         _LOGGER.info(f"[{self.centrale_id}] Gold Socket.IO connected")
-        _LOGGER.debug(f"[{self.centrale_id}] Connection details: namespace={GOLD_NAMESPACE}")
+        _LOGGER.debug(f"[{self.centrale_id}] Connection details: namespace={SOCKET_NAMESPACE}")
         
         # Log session info
         if self.sio:
