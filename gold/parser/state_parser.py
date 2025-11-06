@@ -22,8 +22,7 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
                 "memoria_allarme_ingressi": bool(state.get("stato", 0) & 16),
                 "memoria_sabotaggio_ingresso": bool(state.get("stato", 0) & 32),
                 "allarme_inserito": bool(state.get("stato", 0) & 64),
-                "servizio": bool(state.get("stato", 0) & 128),
-                "_raw": state.get("stato", 0)
+                "servizio": bool(state.get("stato", 0) & 128)
             },
             "alim": {
                 "rete_220_vca": bool(state.get("alim", 0) & 1),
@@ -33,8 +32,7 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
                 "presenza_batteria_interna": bool(state.get("alim", 0) & 16),
                 "allarme_a": bool(state.get("alim", 0) & 32),
                 "allarme_k": bool(state.get("alim", 0) & 64),
-                "allarme_tecnologico": bool(state.get("alim", 0) & 128),
-                "_raw": state.get("alim", 0)
+                "allarme_tecnologico": bool(state.get("alim", 0) & 128)
             },
             "uscite": {
                 "uscita1": bool(state.get("uscite", 0) & 0x01),
@@ -44,14 +42,12 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
                 "uscita5": bool(state.get("uscite", 0) & 0x10),
                 "elettroserratura": bool(state.get("uscite", 0) & 0x20),
                 "sirena_interna": bool(state.get("uscite", 0) & 0x40),
-                "sirena_esterna": bool(state.get("uscite", 0) & 0x80),
-                "_raw": state.get("uscite", 0)
+                "sirena_esterna": bool(state.get("uscite", 0) & 0x80)
             },
             "wifi": {
                 "connesso": bool(state.get("wifi", 0) & 0x01),
                 "configurato": bool(state.get("wifi", 0) & 0x02),
-                "errore": bool(state.get("wifi", 0) & 0x04),
-                "_raw": state.get("wifi", 0)
+                "errore": bool(state.get("wifi", 0) & 0x04)
             },
             "conn_type": "signal" if int(state.get("gprs", 0)) == 2 else "wifi",
             "vbatt": f"{state.get('vbatt', 0) / 10:.1f}",
@@ -59,8 +55,7 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
             "prog": {
                 "g1": bool(state.get("prog", 0) & 1),
                 "g2": bool(state.get("prog", 0) & 2),
-                "g3": bool(state.get("prog", 0) & 4),
-                "_raw": state.get("prog", 0)
+                "g3": bool(state.get("prog", 0) & 4)
             },
             "prog_active": bool(state.get("prog", 0) & 7),
             "programs": state.get("prog", 0),
@@ -70,15 +65,13 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
                 "g3_aperto": bool(state.get("ingr", 0) & 0x04),
                 "supervisione_ingressi": bool(state.get("ingr", 0) & 0x10),
                 "guasto_ingressi_radio": bool(state.get("ingr", 0) & 0x20),
-                "sabotaggio_ingressi": bool(state.get("ingr", 0) & 0x40),
-                "_raw": state.get("ingr", 0)
+                "sabotaggio_ingressi": bool(state.get("ingr", 0) & 0x40)
             },
             "bus": {
                 "tamper_bus": bool(state.get("bus", 0) & 0x08),
                 "dispositivo_bus_intruso": bool(state.get("bus", 0) & 0x10),
                 "sabotaggio_hw_bus": bool(state.get("bus", 0) & 0xB0),
-                "guasto_bus": bool(state.get("bus", 0) & 0x80),
-                "_raw": state.get("bus", 0)
+                "guasto_bus": bool(state.get("bus", 0) & 0x80)
             },
             "sync": state.get("sync", 0),
             "sync_perc": state.get("sync_perc", 0),
@@ -86,8 +79,6 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
             "fw_ver": state.get("fw_ver", "").lstrip("0"),
             "raw": state.get("raw", [])
         }
-        
-        _LOGGER.debug(f"stateParser output: Armed={parsed['prog_active']}, Programs={parsed['programs']:02x}")
         return parsed
         
     except Exception as e:

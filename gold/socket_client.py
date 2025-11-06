@@ -56,28 +56,6 @@ class GoldSocketClient(BaseSocketClient):
         
         # Handler specifici Gold già visti
         self.sio.on("onGoldState", self.on_gold_state, namespace=namespace)
-        
-        # Handler generici per catturare tutto
-        self.sio.on("message", self.on_message, namespace=namespace)
-        self.sio.on("*", self.on_any_event, namespace=namespace)
-        
-        # Possibili altri eventi Gold (da scoprire)
-        possible_events = [
-            "onStatus", "status", "state", "goldStatus",
-            "alarm", "onAlarm", "goldAlarm",
-            "event", "onEvent", "goldEvent",
-            "update", "onUpdate", "goldUpdate",
-            "command", "onCommand", "goldCommand",
-            "response", "onResponse", "goldResponse",
-            "notification", "onNotification",
-            "error", "onError", "goldError",
-            "ping", "pong", "heartbeat"
-        ]
-        
-        for event in possible_events:
-            self.sio.on(event, lambda data, e=event: self.on_discovered_event(e, data), namespace=namespace)
-        
-        _LOGGER.info(f"[{self.centrale_id}] Registered {len(possible_events) + 6} event handlers for discovery")
     
     # ------------------------------ Event handlers GOLD ------------------------------
     
@@ -125,57 +103,6 @@ class GoldSocketClient(BaseSocketClient):
             await self._handle_unauthorized()
         else:
             await self._schedule_reconnect_backoff("gold_connect_error")
-    
-    async def on_message(self, data):
-        """Handler messaggio generico Gold."""
-        timestamp = datetime.now().isoformat()
-        _LOGGER.debug(f"[{self.centrale_id}] Gold message received at {timestamp}")
-        _LOGGER.debug(f"[{self.centrale_id}] Message type: {type(data)}")
-        _LOGGER.debug(f"[{self.centrale_id}] Message content: {data}")
-        
-        self._store_message("message", data, timestamp)
-        
-        if self.message_callback:
-            await self.message_callback(self.centrale_id, data)
-    
-    async def on_any_event(self, event, data):
-        """Handler catch-all per TUTTI gli eventi."""
-        timestamp = datetime.now().isoformat()
-        
-        # Log massivo
-        _LOGGER.debug(f"[{self.centrale_id}] ===== GOLD EVENT CAPTURED =====")
-        _LOGGER.debug(f"[{self.centrale_id}] Timestamp: {timestamp}")
-        _LOGGER.debug(f"[{self.centrale_id}] Event name: '{event}'")
-        _LOGGER.debug(f"[{self.centrale_id}] Data type: {type(data)}")
-        
-        # Log dettagliato del contenuto
-        if isinstance(data, dict):
-            _LOGGER.debug(f"[{self.centrale_id}] Data keys: {list(data.keys())}")
-            for key, value in data.items():
-                if isinstance(value, (list, dict)):
-                    _LOGGER.debug(f"[{self.centrale_id}]   {key}: {type(value)} with {len(value)} items")
-                else:
-                    _LOGGER.debug(f"[{self.centrale_id}]   {key}: {value}")
-        else:
-            _LOGGER.debug(f"[{self.centrale_id}] Data: {data}")
-        
-        _LOGGER.debug(f"[{self.centrale_id}] ==============================")
-        
-        self._store_message(event, data, timestamp)
-        
-        # Se è un evento non gestito, memorizza
-        if event not in ["connect", "disconnect", "connect_error", "message", "onGoldState"]:
-            self._gold_events[event] = self._gold_events.get(event, 0) + 1
-            if self._gold_events[event] == 1:  # Prima volta che vediamo questo evento
-                _LOGGER.debug(f"[{self.centrale_id}] DISCOVERED NEW EVENT: '{event}'")
-    
-    async def on_discovered_event(self, event: str, data: Any):
-        """Handler per eventi scoperti dinamicamente."""
-        timestamp = datetime.now().isoformat()
-        _LOGGER.debug(f"[{self.centrale_id}] Discovered event '{event}' triggered at {timestamp}")
-        _LOGGER.debug(f"[{self.centrale_id}] Event '{event}' data: {data}")
-        
-        self._store_message(f"discovered_{event}", data, timestamp)
     
     async def on_gold_state(self, data):
         """Handler specifico per stato Gold."""

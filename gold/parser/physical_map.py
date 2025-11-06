@@ -454,7 +454,6 @@ def b2jAutoIns(hexstring: str) -> Dict[str, Dict[str, Any]]:
 def parsePhysicalMap(physical_map: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parse complete physical map.
-    ESATTA REPLICA di parsePhysicalMap() dal JS.
     """
     _LOGGER.debug("Parsing Gold physical map")
     
