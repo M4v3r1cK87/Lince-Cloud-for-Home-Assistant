@@ -71,6 +71,7 @@ def _setup_gold_buscomm_sensors(coordinator, api, row_id, centrale_id, centrale_
     entities.extend(
         _add_gold_buscomm_recursive(coordinator, api, row_id, centrale_id, centrale_name, STATUSCENTRALE_MAPPING)
     )
+    return entities
 
 def _add_gold_buscomm_recursive(coordinator, api, row_id, centrale_id, centrale_name, mapping):
     """Helper ricorsivo per aggiungere sensori BUSComm."""
