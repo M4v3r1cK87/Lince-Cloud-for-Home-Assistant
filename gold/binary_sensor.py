@@ -48,7 +48,10 @@ def setup_gold_binary_sensors(system, coordinator, api, config_entry, hass):
     # - BUSComms Gold (se esiste e com'è diverso da Europlus)
     # - Altri sensori specifici Gold
     
-    _LOGGER.warning(f"Gold binary sensors: implementazione parziale, solo sensori di sistema")
+    # Altri sensori dal mapping GOLD con ricorsione
+    entities.extend(
+        _add_gold_buscomm_recursive(coordinator, system, api, row_id, centrale_id, centrale_name, STATUSCENTRALE_MAPPING)
+    )
     
     return entities
 
