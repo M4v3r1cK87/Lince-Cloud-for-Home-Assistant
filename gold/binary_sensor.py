@@ -9,6 +9,14 @@ from ..const import DOMAIN, MANUFACTURER_URL
 
 _LOGGER = logging.getLogger(__name__)
 
+# Variabili globali per tracciare lo stato dei programmi
+programma_g1 = False
+programma_g2 = False
+programma_g3 = False
+programma_gext = False
+timer_uscita_g1_g2_g3 = None
+timer_uscita_gext = None
+
 
 def setup_gold_binary_sensors(system, coordinator, api, config_entry, hass):
     """
@@ -59,14 +67,18 @@ def _add_gold_buscomm_recursive(coordinator, system, api, row_id, centrale_id, c
     """Helper ricorsivo per aggiungere sensori BUSComm."""
     entities = []
     
+    _LOGGER.debug(f"_add_gold_buscomm_recursive: elaborando mapping con {len(mapping)} chiavi")
+    
     for key, value in mapping.items():
         if isinstance(value, dict) and "entity_type" not in value:
             # Ricorsione per sotto-dizionari
+            _LOGGER.debug(f"Ricorsione su sotto-dizionario: {key}")
             entities.extend(
                 _add_gold_buscomm_recursive(coordinator, system, api, row_id, centrale_id, centrale_name, value)
             )
         elif isinstance(value, dict) and value.get("entity_type") == "binary_sensor":
             unique_id = f"lincebuscomms_{row_id}_{key}"
+            _LOGGER.info(f"Creazione binary_sensor Gold: {unique_id} (friendly_name: {value.get('friendly_name', key)})")
             if unique_id not in api.buscomm_sensors[row_id]:
                 entity = GoldBuscommBinarySensor(
                     coordinator=coordinator,
@@ -111,7 +123,7 @@ def update_gold_buscomm_binarysensors(api, row_id, keys, isStepRecursive=False):
         for key, value in keys.items():
             if isinstance(value, dict) and "entity_type" not in value:
                 # Ricorsione
-                update_europlus_buscomm_binarysensors(api, row_id, value, True)
+                update_gold_buscomm_binarysensors(api, row_id, value, True)
                 isStepRecursive = False
             else:
                 config = get_entity_config(STATUSCENTRALE_MAPPING, key)
@@ -211,6 +223,6 @@ class GoldBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
         #if self._attr_device_class in [BinarySensorDeviceClass.LOCK, BinarySensorDeviceClass.BATTERY]:
         #    self._value = not value
         #else:
-        #    self._value = value
+        self._value = value
         
         self.safe_update()
