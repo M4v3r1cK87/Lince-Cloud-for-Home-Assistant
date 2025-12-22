@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from ..common.api import CommonAPI
 from .socket_client import GoldSocketClient
 from .parser import GoldStateParser, GoldPhysicalMapParser
+from .binary_sensor import update_gold_buscomm_binarysensors
+from .sensor import update_gold_buscomm_sensors
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,7 +143,18 @@ class GoldAPI(CommonAPI):
             if isinstance(message, dict):
                 if message.get("type") == "gold_state":
                     # Already parsed by socket client
-                    self._states_cache[centrale_id] = message.get("data", {})
+                    parsed_state = message.get("data", {})
+                    self._states_cache[centrale_id] = parsed_state
+                    
+                    # IMPORTANTE: Aggiorna i sensori con i dati parsati
+                    # I dati sono già nella struttura corretta (stato, alim, prog, ecc.)
+                    _LOGGER.debug(f"[{centrale_id}] Aggiornamento sensori Gold con dati parsati")
+                    
+                    # Aggiorna binary sensors
+                    update_gold_buscomm_binarysensors(self, centrale_id, parsed_state)
+                    
+                    # Aggiorna sensors (voltage, current, firmware, etc.)
+                    update_gold_buscomm_sensors(self, centrale_id, parsed_state)
                     
                     # Notify HA of state change
                     if self.hass:

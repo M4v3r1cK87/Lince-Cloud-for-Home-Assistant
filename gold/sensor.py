@@ -95,7 +95,13 @@ def _add_gold_buscomm_recursive(coordinator, api, row_id, centrale_id, centrale_
 
 def update_gold_buscomm_sensors(api, row_id, keys):
     """Aggiorna sensori buscomms GOLD - chiamabile dall'API."""
-    if not hasattr(api, 'buscomm_sensors') or row_id not in api.buscomm_sensors:
+    _LOGGER.debug(f"update_gold_buscomm_sensors called for row_id={row_id}")
+    
+    if not hasattr(api, 'buscomm_sensors'):
+        _LOGGER.debug(f"[{row_id}] api non ha buscomm_sensors")
+        return
+    if row_id not in api.buscomm_sensors:
+        _LOGGER.debug(f"[{row_id}] row_id non presente in buscomm_sensors. Keys disponibili: {list(api.buscomm_sensors.keys())}")
         return
     
     if keys is None:
@@ -108,6 +114,7 @@ def update_gold_buscomm_sensors(api, row_id, keys):
         for key, value in keys.items():
             if isinstance(value, dict) and "entity_type" not in value:
                 # Ricorsione
+                _LOGGER.debug(f"[{row_id}] Ricorsione su chiave: {key}")
                 update_gold_buscomm_sensors(api, row_id, value)
             else:
                 # Aggiorna il sensore specifico
@@ -116,7 +123,10 @@ def update_gold_buscomm_sensors(api, row_id, keys):
                     unique_id = f"lincebuscomms_{row_id}_{key}"
                     entity = api.buscomm_sensors[row_id].get(unique_id)
                     if entity:
+                        _LOGGER.debug(f"[{row_id}] Aggiornamento sensore {key} con valore: {value}")
                         entity.update_values(value)
+                    else:
+                        _LOGGER.debug(f"[{row_id}] Entità non trovata per unique_id: {unique_id}")
 
 def get_entity_config(mapping, target_key):
     """Helper per ottenere configurazione entità dal mapping."""

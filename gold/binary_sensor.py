@@ -36,6 +36,22 @@ def setup_gold_binary_sensors(system, coordinator, api, config_entry, hass):
     
     _LOGGER.info(f"Setup Gold binary sensors per sistema {row_id}")
     
+    # IMPORTANTE: Avvia la connessione socket per ricevere gli aggiornamenti di stato
+    # In Gold, dato che l'alarm panel non è ancora implementato, la socket va avviata qui
+    async def start_socket():
+        try:
+            if hasattr(api, 'start_socket_connection'):
+                if not api.is_socket_connected(row_id):
+                    _LOGGER.info(f"[{row_id}] Avvio connessione socket Gold...")
+                    await api.start_socket_connection(row_id)
+                else:
+                    _LOGGER.debug(f"[{row_id}] Socket Gold già connessa")
+        except Exception as e:
+            _LOGGER.error(f"[{row_id}] Errore avvio socket Gold: {e}")
+    
+    # Schedula l'avvio della socket in modo asincrono
+    hass.async_create_task(start_socket())
+    
     # Per ora Gold usa solo i sensori comuni dal sistema
     # (questi sono condivisi tra tutti i brand)
     for key in BINARYSENSOR_SYSTEM_KEYS:
@@ -109,9 +125,17 @@ def update_gold_buscomm_binarysensors(api, row_id, keys, isStepRecursive=False):
     """Aggiorna sensori buscomms GOLD - chiamabile dall'API."""
     global programma_g1, programma_g2, programma_g3, programma_gext
     global timer_uscita_g1_g2_g3, timer_uscita_gext
+
+    _LOGGER.debug(f"update_gold_buscomm_binarysensors: row_id={row_id}, isStepRecursive={isStepRecursive}")
     
-    if not hasattr(api, 'buscomm_sensors') or row_id not in api.buscomm_sensors:
+    if not hasattr(api, 'buscomm_sensors'):
+        _LOGGER.debug(f"[{row_id}] api non ha buscomm_sensors")
         return
+    if row_id not in api.buscomm_sensors:
+        _LOGGER.debug(f"[{row_id}] row_id non presente in buscomm_sensors. Keys disponibili: {list(api.buscomm_sensors.keys())}")
+        return
+    
+    _LOGGER.debug(f"[{row_id}] Entità registrate: {list(api.buscomm_sensors[row_id].keys())}")
     
     if keys is None:
         # Reset tutti i sensori
@@ -122,7 +146,8 @@ def update_gold_buscomm_binarysensors(api, row_id, keys, isStepRecursive=False):
         # Aggiorna i sensori con i valori forniti
         for key, value in keys.items():
             if isinstance(value, dict) and "entity_type" not in value:
-                # Ricorsione
+                # Ricorsione per sotto-dizionari (es: "stato", "prog", "alim")
+                _LOGGER.debug(f"[{row_id}] Ricorsione su sotto-dizionario: {key}")
                 update_gold_buscomm_binarysensors(api, row_id, value, True)
                 isStepRecursive = False
             else:
@@ -132,6 +157,7 @@ def update_gold_buscomm_binarysensors(api, row_id, keys, isStepRecursive=False):
                     entity = api.buscomm_sensors[row_id].get(unique_id)
                     if entity and hasattr(entity, 'update_values'):
                         entity.update_values(value)
+                        _LOGGER.debug(f"[{row_id}] Update binary_sensor: {key} = {value}")
                         # Traccia stato programmi
                         if key == "g1":
                             programma_g1 = value
@@ -139,6 +165,8 @@ def update_gold_buscomm_binarysensors(api, row_id, keys, isStepRecursive=False):
                             programma_g2 = value
                         elif key == "g3":
                             programma_g3 = value
+                    else:
+                        _LOGGER.debug(f"[{row_id}] Entità non trovata per {unique_id}")
         
         # Aggiorna centrale allarmata
         if not isStepRecursive:
@@ -147,6 +175,7 @@ def update_gold_buscomm_binarysensors(api, row_id, keys, isStepRecursive=False):
             if entity and hasattr(entity, 'update_values'):
                 allarmata = programma_g1 or programma_g2 or programma_g3
                 entity.update_values(allarmata)
+                _LOGGER.debug(f"[{row_id}] Centrale allarmata: {allarmata}")
 
 
 class GoldBinarySensor(CommonCentraleBinarySensorEntity):
