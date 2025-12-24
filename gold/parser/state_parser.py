@@ -25,11 +25,18 @@ def stateParser(state: Dict[str, Any]) -> Dict[str, Any]:
                 "servizio": bool(state.get("stato", 0) & 128)
             },
             "alim": {
-                "rete_220_vca": bool(state.get("alim", 0) & 1),
-                "stato_batteria_interna": bool(state.get("alim", 0) & 2),
-                "fusibile": bool(state.get("alim", 0) & 4),
-                "stato_batteria_esterna": bool(state.get("alim", 0) & 8),
-                "presenza_batteria_interna": bool(state.get("alim", 0) & 16),
+                # NOTA: I primi 5 bit di alim hanno logica INVERSA nel protocollo!
+                # Il bit settato indica PROBLEMA, non stato OK.
+                # Per device_class "plug" (rete_220, fusibile): invertiamo perché bit=1 significa problema
+                # ma "plug" mostra on=collegato, off=scollegato
+                # Per device_class "battery": NON invertiamo perché bit=1 significa problema
+                # e "battery" mostra già on=low battery, off=OK
+                "rete_220_vca": not bool(state.get("alim", 0) & 1),  # Invertito: bit=1 significa assente, plug on=presente
+                "stato_batteria_interna": bool(state.get("alim", 0) & 2),  # NON invertito: bit=1 problema, battery on=low
+                "fusibile": not bool(state.get("alim", 0) & 4),  # Invertito: bit=1 significa guasto, plug on=ok
+                "stato_batteria_esterna": bool(state.get("alim", 0) & 8),  # NON invertito: bit=1 problema, battery on=low
+                "presenza_batteria_interna": bool(state.get("alim", 0) & 16),  # NON invertito: bit=1 assente, battery on=problema
+                # Gli allarmi hanno logica normale: bit=1 significa allarme attivo
                 "allarme_a": bool(state.get("alim", 0) & 32),
                 "allarme_k": bool(state.get("alim", 0) & 64),
                 "allarme_tecnologico": bool(state.get("alim", 0) & 128)

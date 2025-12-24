@@ -248,10 +248,11 @@ class GoldBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Aggiorna il valore del sensore."""
         _LOGGER.debug(f"Aggiornamento BUSComms {self._attr_name}: {value}")
         
-        # Inversione per lock e battery
-        #if self._attr_device_class in [BinarySensorDeviceClass.LOCK, BinarySensorDeviceClass.BATTERY]:
-        #    self._value = not value
-        #else:
-        self._value = value
+        # Inversione per lock
+        # device_class LOCK: on=Unlocked, off=Locked → invertiamo per mostrare Locked quando attivo
+        if self._attr_device_class == BinarySensorDeviceClass.LOCK:
+            self._value = not value
+        else:
+            self._value = value
         
         self.safe_update()

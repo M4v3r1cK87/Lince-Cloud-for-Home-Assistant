@@ -57,11 +57,14 @@ STATUSCENTRALE_MAPPING = {
         "servizio": {"entity_type": "binary_sensor", "friendly_name": "Servizio"},
     },
     "alim": {
-        "rete_220_vca": {"entity_type": "binary_sensor", "friendly_name": "Rete 220V", "device_class": "power"},
-        "stato_batteria_interna": {"entity_type": "binary_sensor", "friendly_name": "Stato Batteria Interna", "device_class": "battery"},
-        "fusibile": {"entity_type": "binary_sensor", "friendly_name": "Fusibile uscite", "device_class": "problem"},
-        "stato_batteria_esterna": {"entity_type": "binary_sensor", "friendly_name": "Stato Batteria Esterna", "device_class": "battery"},
-        "presenza_batteria_interna": {"entity_type": "binary_sensor", "friendly_name": "Presenza Batteria Interna"},
+        # Questi sensori ora hanno logica corretta: TRUE = OK, FALSE = problema
+        # (l'inversione avviene nel parser state_parser.py)
+        "rete_220_vca": {"entity_type": "binary_sensor", "friendly_name": "Rete 220V Presente", "device_class": "plug"},
+        "stato_batteria_interna": {"entity_type": "binary_sensor", "friendly_name": "Batteria Interna OK", "device_class": "battery"},
+        "fusibile": {"entity_type": "binary_sensor", "friendly_name": "Fusibile Uscite OK", "device_class": "plug"},
+        "stato_batteria_esterna": {"entity_type": "binary_sensor", "friendly_name": "Batteria Esterna OK", "device_class": "battery"},
+        "presenza_batteria_interna": {"entity_type": "binary_sensor", "friendly_name": "Batteria Interna Presente", "device_class": "battery"},
+        # Gli allarmi hanno logica normale: TRUE = allarme attivo
         "allarme_a": {"entity_type": "binary_sensor", "friendly_name": "Allarme A", "device_class": "safety"},
         "allarme_k": {"entity_type": "binary_sensor", "friendly_name": "Allarme K", "device_class": "safety"},
         "allarme_tecnologico": {"entity_type": "binary_sensor", "friendly_name": "Allarme Tecnologico", "device_class": "safety"},
