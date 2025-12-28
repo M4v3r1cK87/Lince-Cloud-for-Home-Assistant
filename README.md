@@ -1,4 +1,4 @@
-# LinceCloud - Integrazione Home Assistant per Centrali Lince
+# Lince Alarm - Integrazione Home Assistant per Centrali Lince
 
 [![GitHub Release][releases-shield]][releases]
 [![GitHub Activity][commits-shield]][commits]
@@ -61,7 +61,7 @@ Al momento non sono supportate le centrali Gold/Tosca (si ricercano beta tester)
 ## 📋 Requisiti
 
 - Home Assistant 2024.1.0 o superiore
-- Account LinceCloud attivo
+- Account Lince Cloud attivo
 - Centrale Lince compatibile con il servizio cloud
 - Python 3.11 o superiore
 - [Additional CA Integration](https://github.com/Athozs/hass-additional-ca) (per certificato SSL)
@@ -70,7 +70,7 @@ Al momento non sono supportate le centrali Gold/Tosca (si ricercano beta tester)
 
 ### ⚠️ Pre-requisito: Configurazione Certificato SSL
 
-Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere installato in Home Assistant per permettere la comunicazione sicura.
+Il servizio Lince Cloud utilizza un certificato SSL self-signed che deve essere installato in Home Assistant per permettere la comunicazione sicura.
 
 #### Passo 1: Installa Additional CA Integration
 
@@ -104,22 +104,22 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
 
 1. Assicurati che HACS sia installato (vedi [documentazione HACS](https://hacs.xyz/docs/setup/download)).
 2. Vai su HACS > Integrazioni > Menu (⋮) > Repositories personalizzati.
-3. Aggiungi il repository: `https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant`
+3. Aggiungi il repository: `https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant`
 4. Imposta la categoria su Integrazione e clicca su Aggiungi.
-5. Cerca "LinceCloud" in HACS e installalo.
+5. Cerca "Lince Alarm" in HACS e installalo.
 6. Riavvia Home Assistant.
 7. Vai in **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**.
-8. Cerca **LinceCloud** e segui la procedura guidata.
+8. Cerca **Lince Alarm** e segui la procedura guidata.
 
 #### Metodo 2: Installazione Manuale
 
-1. Scarica l'ultima release da [GitHub Releases](https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/releases)
-2. Estrai la cartella `Lince-Cloud-for-Home-Assistant` in `config/custom_components/`
+1. Scarica l'ultima release da [GitHub Releases](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/releases)
+2. Estrai la cartella `Lince-Alarm-for-Home-Assistant` in `config/custom_components/`
 3. La struttura dovrebbe essere:
    ```
    config/
    ├── custom_components/
-   │   └── Lince-Cloud-for-Home-Assistant/
+   │   └── Lince-Alarm-for-Home-Assistant/
    │       ├── __init__.py
    │       ├── manifest.json
    │       └── ...
@@ -128,15 +128,15 @@ Il servizio LinceCloud utilizza un certificato SSL self-signed che deve essere i
    ```
 4. Riavvia Home Assistant
 5. Vai in **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**
-6. Cerca **LinceCloud** e segui la procedura guidata
+6. Cerca **Lince Alarm** e segui la procedura guidata
 
 #### Metodo 3: Git Clone
 
 ```bash
 cd /config/custom_components
-git clone https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant.git
+git clone https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.git
 # Copia il certificato
-cp Lince-Cloud-for-Home-Assistant/lince_cloud.pem /config/additional_ca/
+cp Lince-Alarm-for-Home-Assistant/lince_cloud.pem /config/additional_ca/
 ```
 
 ## ⚙️ Configurazione
@@ -145,8 +145,8 @@ cp Lince-Cloud-for-Home-Assistant/lince_cloud.pem /config/additional_ca/
 
 1. Vai in **Impostazioni** → **Dispositivi e Servizi**
 2. Clicca su **Aggiungi integrazione**
-3. Cerca **LinceCloud**
-4. Inserisci le credenziali del tuo account LinceCloud:
+3. Cerca **Lince Alarm**
+4. Inserisci le credenziali del tuo account Lince Cloud:
    - Email
    - Password
 5. Seleziona le centrali da importare
@@ -208,7 +208,7 @@ Per verificare che tutto sia installato correttamente:
 
 2. **Integrazione**: Verifica la presenza dei file
    ```bash
-   ls -la /config/custom_components/Lince-Cloud-for-Home-Assistant/
+   ls -la /config/custom_components/Lince-Alarm-for-Home-Assistant/
    ```
 
 3. **Log**: Controlla i log per errori
@@ -235,7 +235,7 @@ Questo progetto è rilasciato sotto licenza MIT. Vedi il file [LICENSE](LICENSE)
 Questa è un'integrazione **non ufficiale**. Gli autori non sono affiliati con Lince o i suoi partner.
 L'uso di questa integrazione è a proprio rischio e responsabilità.
 
-Il certificato SSL incluso (`lince_cloud.pem`) è necessario per la comunicazione con i server LinceCloud ed è fornito solo per scopi di interoperabilità.
+Il certificato SSL incluso (`lince_cloud.pem`) è necessario per la comunicazione con i server Lince Cloud ed è fornito solo per scopi di interoperabilità.
 
 ## 🙏 Ringraziamenti
 
@@ -245,16 +245,16 @@ Il certificato SSL incluso (`lince_cloud.pem`) è necessario per la comunicazion
 
 ## 📞 Supporto
 
-Per bug e feature request, apri una [issue su GitHub](https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/issues).
+Per bug e feature request, apri una [issue su GitHub](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/issues).
 
-Per discussioni e supporto dalla community, partecipa alle [Discussions](https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/discussions).
+Per discussioni e supporto dalla community, partecipa alle [Discussions](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/discussions).
 
 ---
 
 **Made with ❤️ for Home Assistant**
 
-[commits-shield]: https://img.shields.io/github/commit-activity/y/M4v3r1cK87/Lince-Cloud-for-Home-Assistant.svg?style=for-the-badge
-[commits]: https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/commits/main
-[license-shield]: https://img.shields.io/github/license/M4v3r1cK87/Lince-Cloud-for-Home-Assistant.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/M4v3r1cK87/Lince-Cloud-for-Home-Assistant.svg?style=for-the-badge
-[releases]: https://github.com/M4v3r1cK87/Lince-Cloud-for-Home-Assistant/releases
+[commits-shield]: https://img.shields.io/github/commit-activity/y/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.svg?style=for-the-badge
+[commits]: https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/commits/main
+[license-shield]: https://img.shields.io/github/license/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/release/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.svg?style=for-the-badge
+[releases]: https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/releases

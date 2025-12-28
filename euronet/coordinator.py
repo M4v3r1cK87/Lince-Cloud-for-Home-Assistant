@@ -145,7 +145,9 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         
         # Reset per permettere un nuovo tentativo
         self._zone_configs_loaded = False
-        await self._async_load_zone_configs()
+        
+        # Esegui il caricamento (passiamo from_retry=True per gestire la logica)
+        await self._async_load_zone_configs(from_retry=True)
         
         # Dopo il retry, verifica se abbiamo caricato nuove zone
         if self._zone_configs:
@@ -163,14 +165,26 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 self.hass.async_create_task(
                     self.hass.config_entries.async_reload(self.config_entry.entry_id)
                 )
+            else:
+                # Non abbiamo caricato nuove zone, programma un altro retry
+                num_filari = self.num_zone_filari
+                num_radio = self.num_zone_radio
+                if (new_filari < num_filari or new_radio < num_radio) and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
+                    _LOGGER.info("Retry non ha caricato nuove zone, ne programmo un altro")
+                    self._zone_config_retry_task = asyncio.create_task(
+                        self._schedule_zone_config_retry()
+                    )
         
-    async def _async_load_zone_configs(self) -> None:
+    async def _async_load_zone_configs(self, from_retry: bool = False) -> None:
         """Carica le configurazioni complete delle zone usando il codice installatore.
         
         Questo metodo viene chiamato una sola volta durante l'inizializzazione
         o durante il reload dell'integrazione. Usa ZoneConfigFetcher per
         recuperare tutti i dati di configurazione delle zone filari e radio
         dalla centrale tramite web scraping.
+        
+        Args:
+            from_retry: Se True, siamo in un retry e non creiamo nuovi task di retry
         """
         # Usa lock per evitare caricamenti paralleli
         async with self._zone_config_lock:
@@ -227,7 +241,35 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 )
                 
                 # Esegui il fetch in un executor per non bloccare
-                self._zone_configs = await fetcher.fetch_all_zones()
+                new_configs = await fetcher.fetch_all_zones()
+                
+                # Debug: log stato prima del merge
+                prev_count = len(self._zone_configs.zone_filari) if self._zone_configs else 0
+                new_count = len(new_configs.zone_filari) if new_configs else 0
+                _LOGGER.info(
+                    "Merge zone: precedenti=%d, nuove=%d, self._zone_configs=%s, new_configs=%s",
+                    prev_count, new_count, 
+                    bool(self._zone_configs), bool(new_configs)
+                )
+                
+                # Merge con le configurazioni esistenti (per retry)
+                if self._zone_configs and new_configs:
+                    # Unisci le zone: le nuove si aggiungono/sovrascrivono le vecchie
+                    _LOGGER.info("Merge: zone esistenti=%s, nuove=%s", 
+                        list(self._zone_configs.zone_filari.keys()),
+                        list(new_configs.zone_filari.keys())
+                    )
+                    for zona_num, zona_config in new_configs.zone_filari.items():
+                        self._zone_configs.zone_filari[zona_num] = zona_config
+                    for zona_num, zona_config in new_configs.zone_radio.items():
+                        self._zone_configs.zone_radio[zona_num] = zona_config
+                    self._zone_configs.timestamp = new_configs.timestamp
+                    _LOGGER.info("Dopo merge: zone=%s", list(self._zone_configs.zone_filari.keys()))
+                elif new_configs:
+                    _LOGGER.info("No merge: self._zone_configs è None/vuoto, uso new_configs")
+                    self._zone_configs = new_configs
+                else:
+                    _LOGGER.warning("No merge: new_configs è None/vuoto")
                 
                 # Log dei risultati e verifica completezza
                 if self._zone_configs:
@@ -255,18 +297,17 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                             "Caricamento zone incompleto: mancano %d filari e %d radio",
                             max(0, missing_filari), max(0, missing_radio)
                         )
-                        # Programma retry automatico in background (solo se non c'è già un task attivo)
-                        if (self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES and 
-                            (self._zone_config_retry_task is None or self._zone_config_retry_task.done())):
+                        # Programma retry automatico solo se non siamo già in un retry
+                        # (il retry gestisce autonomamente il prossimo tentativo)
+                        if not from_retry and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
                             self._zone_config_retry_task = asyncio.create_task(
                                 self._schedule_zone_config_retry()
                             )
                 else:
                     self._zone_configs_complete = False
                     _LOGGER.warning("Nessuna configurazione zone caricata")
-                    # Programma retry automatico (solo se non c'è già un task attivo)
-                    if (self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES and
-                        (self._zone_config_retry_task is None or self._zone_config_retry_task.done())):
+                    # Programma retry automatico solo se non siamo già in un retry
+                    if not from_retry and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
                         self._zone_config_retry_task = asyncio.create_task(
                             self._schedule_zone_config_retry()
                         )
@@ -276,9 +317,8 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             except Exception as e:
                 _LOGGER.error("Errore caricamento configurazioni zone: %s", e)
                 self._zone_configs_loaded = True
-                # Programma retry anche in caso di errore (solo se non c'è già un task attivo)
-                if (self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES and
-                    (self._zone_config_retry_task is None or self._zone_config_retry_task.done())):
+                # Programma retry anche in caso di errore (solo se non siamo già in un retry)
+                if not from_retry and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
                     self._zone_config_retry_task = asyncio.create_task(
                         self._schedule_zone_config_retry()
                     )

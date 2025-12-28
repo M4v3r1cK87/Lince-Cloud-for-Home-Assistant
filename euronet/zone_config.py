@@ -632,21 +632,25 @@ class ZoneConfigFetcher:
                     _LOGGER.error("Failed to login as installer (attempt %d)", attempt + 1)
                     continue  # Try again with new session
                 
+                # Wait after login to let the device stabilize
+                await asyncio.sleep(0.5)
+                
                 # Fetch wired zones that are still pending
                 if pending_filari:
                     if attempt == 0:
                         _LOGGER.info("Fetching %d wired zone configurations...", self.num_zone_filari)
                     
                     failed_filari = set()
-                    for i in list(pending_filari):
+                    # Fetch in reverse order - lower zones seem to fail more often initially
+                    for i in sorted(pending_filari, reverse=True):
                         zone_config = await self._fetch_zone_filare(session, i)
                         if zone_config:
                             configs.zone_filari[i] = zone_config
                             _LOGGER.debug("Zone %d: %s (%s)", i, zone_config.nome, zone_config.tipo_label)
                         else:
                             failed_filari.add(i)
-                        # Small delay to avoid overwhelming the device
-                        await asyncio.sleep(0.1)
+                        # Delay between requests to avoid overwhelming the device
+                        await asyncio.sleep(0.2)
                     
                     pending_filari = failed_filari
                 
