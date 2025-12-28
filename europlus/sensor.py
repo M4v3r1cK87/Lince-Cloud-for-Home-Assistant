@@ -211,6 +211,7 @@ class EuroplusBUSCommsSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_class = configs.get("device_class", None)
         self._attr_state_class = configs.get("state_class", None)
         self._unit_of_measurement = configs.get("unit_of_measurement", None)
+        self._attr_icon = configs.get("icon", None)
         self._state = None
 
         if self._unit_of_measurement is not None:
