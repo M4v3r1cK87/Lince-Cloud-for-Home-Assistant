@@ -23,7 +23,7 @@ SENSOR_MAPPING = {
         "device_class": "voltage",
         "state_class": "measurement",
         "unit_of_measurement": "V",
-        "icon": "mdi:battery",
+        "icon": "mdi:current-dc",
     },
     "tensione_bus_v": {
         "friendly_name": "Tensione BUS",

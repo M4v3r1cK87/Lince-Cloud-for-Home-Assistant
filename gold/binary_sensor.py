@@ -5,9 +5,33 @@ from .entity_mapping import BINARYSENSOR_SYSTEM_KEYS, STATUSCENTRALE_MAPPING
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import EntityCategory
 from ..const import DOMAIN, MANUFACTURER_URL
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ============================================================================
+# DEVICE CLASS MAPPING
+# ============================================================================
+
+BINARY_SENSOR_DEVICE_CLASS_MAP = {
+    "power": BinarySensorDeviceClass.POWER,
+    "battery": BinarySensorDeviceClass.BATTERY,
+    "safety": BinarySensorDeviceClass.SAFETY,
+    "problem": BinarySensorDeviceClass.PROBLEM,
+    "tamper": BinarySensorDeviceClass.TAMPER,
+    "lock": BinarySensorDeviceClass.LOCK,
+    "door": BinarySensorDeviceClass.DOOR,
+    "window": BinarySensorDeviceClass.WINDOW,
+    "opening": BinarySensorDeviceClass.OPENING,
+    "motion": BinarySensorDeviceClass.MOTION,
+    "smoke": BinarySensorDeviceClass.SMOKE,
+    "gas": BinarySensorDeviceClass.GAS,
+    "plug": BinarySensorDeviceClass.PLUG,
+    "connectivity": BinarySensorDeviceClass.CONNECTIVITY,
+}
+
 
 # Variabili globali per tracciare lo stato dei programmi
 programma_g1 = False
@@ -71,6 +95,28 @@ def setup_gold_binary_sensors(system, coordinator, api, config_entry, hass):
     # - Zone Gold (se esistono e come sono strutturate)
     # - BUSComms Gold (se esiste e com'è diverso da Europlus)
     # - Altri sensori specifici Gold
+    
+    # Sensore centrale allarmata (logica SPECIFICA Gold)
+    centrale_allarmata_unique_id = f"lincebuscomms_{row_id}_centrale_allarmata"
+    if centrale_allarmata_unique_id not in api.buscomm_sensors[row_id]:
+        entity = GoldBuscommBinarySensor(
+            coordinator=coordinator,
+            system=None,
+            row_id=row_id,
+            centrale_id=centrale_id,
+            centrale_name=centrale_name,
+            key="centrale_allarmata",
+            configs={
+                "entity_type": "binary_sensor",
+                "friendly_name": "Centrale Allarmata",
+                "device_class": "lock",
+                "inverted": True,  # Allarmata=True → is_on=False → "Locked"
+                "icon_on": "mdi:shield-lock-open-outline",  # Non allarmata (invertito)
+                "icon_off": "mdi:shield-lock",  # Allarmata (invertito)
+            }
+        )
+        entities.append(entity)
+        api.buscomm_sensors[row_id][centrale_allarmata_unique_id] = entity
     
     # Altri sensori dal mapping GOLD con ricorsione
     entities.extend(
@@ -201,9 +247,31 @@ class GoldBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._centrale_id = centrale_id
         self._centrale_name = centrale_name
         self._attr_unique_id = f"lincebuscomms_{self._row_id}_{self._key}"
-        self._attr_device_class = configs.get("device_class", None)
         self._value = None
         self._state = None
+        self._configs = configs
+        
+        # Device class
+        dc = configs.get("device_class")
+        if dc and dc in BINARY_SENSOR_DEVICE_CLASS_MAP:
+            self._attr_device_class = BINARY_SENSOR_DEVICE_CLASS_MAP[dc]
+        else:
+            self._attr_device_class = None
+        
+        # Invert logic (per es. programmi G1/G2/G3 e batterie)
+        self._invert = configs.get("inverted", False)
+        
+        # Icon statica o dinamica
+        self._icon_static = configs.get("icon")
+        self._icon_on = configs.get("icon_on")
+        self._icon_off = configs.get("icon_off")
+        
+        # Entity category (se specificata)
+        entity_cat = configs.get("entity_category")
+        if entity_cat == "diagnostic":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        elif entity_cat == "config":
+            self._attr_entity_category = EntityCategory.CONFIG
         
         # Nome del sensore con customizzazione per programmi
         sensorName = configs.get("friendly_name", self._key)
@@ -237,6 +305,13 @@ class GoldBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
             return None
         return bool(self._value)
     
+    @property
+    def icon(self) -> str | None:
+        """Restituisce l'icona in base allo stato."""
+        if self._icon_on and self._icon_off:
+            return self._icon_on if self.is_on else self._icon_off
+        return self._icon_static
+    
     def safe_update(self):
         """Aggiorna lo stato dell'entità."""
         if getattr(self, "hass", None) is not None:
@@ -248,9 +323,8 @@ class GoldBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Aggiorna il valore del sensore."""
         _LOGGER.debug(f"Aggiornamento BUSComms {self._attr_name}: {value}")
         
-        # Inversione per lock
-        # device_class LOCK: on=Unlocked, off=Locked → invertiamo per mostrare Locked quando attivo
-        if self._attr_device_class == BinarySensorDeviceClass.LOCK:
+        # Inversione per sensori con logica invertita
+        if self._invert and value is not None:
             self._value = not value
         else:
             self._value = value

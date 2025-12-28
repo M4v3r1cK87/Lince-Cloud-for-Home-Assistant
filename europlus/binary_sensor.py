@@ -7,10 +7,33 @@ import logging
 
 from ..const import DOMAIN, MANUFACTURER_URL, MODEL_IMAGE_BASE
 from ..common.binary_sensors import CommonCentraleBinarySensorEntity
-from .entity_mapping import BINARYSENSOR_SYSTEM_KEYS, STATUSCENTRALE_MAPPING
+from .entity_mapping import BINARYSENSOR_SYSTEM_KEYS, STATUSCENTRALE_MAPPING, ZONE_FILARE_CONFIG, ZONE_RADIO_CONFIG
 from ..utils import prima_lettera_maiuscola, ensure_device_icon_exists
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ============================================================================
+# DEVICE CLASS MAPPING
+# ============================================================================
+
+BINARY_SENSOR_DEVICE_CLASS_MAP = {
+    "power": BinarySensorDeviceClass.POWER,
+    "battery": BinarySensorDeviceClass.BATTERY,
+    "safety": BinarySensorDeviceClass.SAFETY,
+    "problem": BinarySensorDeviceClass.PROBLEM,
+    "tamper": BinarySensorDeviceClass.TAMPER,
+    "lock": BinarySensorDeviceClass.LOCK,
+    "door": BinarySensorDeviceClass.DOOR,
+    "window": BinarySensorDeviceClass.WINDOW,
+    "opening": BinarySensorDeviceClass.OPENING,
+    "motion": BinarySensorDeviceClass.MOTION,
+    "smoke": BinarySensorDeviceClass.SMOKE,
+    "gas": BinarySensorDeviceClass.GAS,
+    "plug": BinarySensorDeviceClass.PLUG,
+    "connectivity": BinarySensorDeviceClass.CONNECTIVITY,
+}
+
 
 # Variabili globali per stato programmi EUROPLUS
 programma_g1 = False
@@ -155,7 +178,10 @@ def _setup_europlus_buscomms(coordinator, system, api, row_id, centrale_id, cent
             configs={
                 "entity_type": "binary_sensor",
                 "friendly_name": "Centrale Allarmata",
-                "device_class": "lock"
+                "device_class": "lock",
+                "inverted": True,  # Allarmata=True → is_on=False → "Locked"
+                "icon_on": "mdi:shield-lock-open-outline",  # Non allarmata (invertito)
+                "icon_off": "mdi:shield-lock",  # Allarmata (invertito)
             }
         )
         entities.append(entity)
@@ -280,9 +306,22 @@ class EuroplusZoneBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._zone_name = attributes.get('Nome', f'Zona {attributes["Numero Zona"]}')
         self._attr_name = f"Zona {str(self._zone_number).zfill(2)}: {self._zone_name}"
         self._attr_unique_id = f"{self._row_id}_{self._zone_type.lower()}_{self._zone_number}"
-        self._attr_device_class = device_class
         self._attr_extra_state_attributes = attributes
         self._state = attributes.get('Ingresso Aperto', None)
+        
+        # Ottieni configurazione zone dal mapping
+        zone_config = ZONE_FILARE_CONFIG if self._zone_type == "Filare" else ZONE_RADIO_CONFIG
+        
+        # Device class dal mapping
+        dc = zone_config.get("device_class", device_class)
+        if dc and dc in BINARY_SENSOR_DEVICE_CLASS_MAP:
+            self._attr_device_class = BINARY_SENSOR_DEVICE_CLASS_MAP[dc]
+        else:
+            self._attr_device_class = dc
+        
+        # Icone dinamiche dal mapping
+        self._icon_on = zone_config.get("icon_on", "mdi:door-open")
+        self._icon_off = zone_config.get("icon_off", "mdi:door-closed")
         
         # Registrazione nel dizionario dei sensori zone
         if not hasattr(self._api, "zone_sensors"):
@@ -313,6 +352,11 @@ class EuroplusZoneBinarySensor(CoordinatorEntity, BinarySensorEntity):
             return bool(self._attr_extra_state_attributes.get('Ingresso Aperto'))
         else:  # Radio
             return bool(self._attr_extra_state_attributes.get('Ingresso Allarme'))
+    
+    @property
+    def icon(self) -> str | None:
+        """Restituisce l'icona in base allo stato."""
+        return self._icon_on if self.is_on else self._icon_off
     
     def safe_update(self):
         """Aggiorna lo stato dell'entità."""
@@ -389,9 +433,31 @@ class EuroplusBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._centrale_id = centrale_id
         self._centrale_name = centrale_name
         self._attr_unique_id = f"lincebuscomms_{self._row_id}_{self._key}"
-        self._attr_device_class = configs.get("device_class", None)
         self._value = None
         self._state = None
+        self._configs = configs
+        
+        # Device class
+        dc = configs.get("device_class")
+        if dc and dc in BINARY_SENSOR_DEVICE_CLASS_MAP:
+            self._attr_device_class = BINARY_SENSOR_DEVICE_CLASS_MAP[dc]
+        else:
+            self._attr_device_class = None
+        
+        # Invert logic (per es. programmi G1/G2/G3/GEXT e batterie)
+        self._invert = configs.get("inverted", False)
+        
+        # Icon statica o dinamica
+        self._icon_static = configs.get("icon")
+        self._icon_on = configs.get("icon_on")
+        self._icon_off = configs.get("icon_off")
+        
+        # Entity category (se specificata)
+        entity_cat = configs.get("entity_category")
+        if entity_cat == "diagnostic":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        elif entity_cat == "config":
+            self._attr_entity_category = EntityCategory.CONFIG
         
         # Nome del sensore con customizzazione per programmi
         sensorName = configs.get("friendly_name", self._key)
@@ -427,6 +493,13 @@ class EuroplusBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
             return None
         return bool(self._value)
     
+    @property
+    def icon(self) -> str | None:
+        """Restituisce l'icona in base allo stato."""
+        if self._icon_on and self._icon_off:
+            return self._icon_on if self.is_on else self._icon_off
+        return self._icon_static
+    
     def safe_update(self):
         """Aggiorna lo stato dell'entità."""
         if getattr(self, "hass", None) is not None:
@@ -438,8 +511,8 @@ class EuroplusBuscommBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Aggiorna il valore del sensore."""
         _LOGGER.debug(f"Aggiornamento BUSComms {self._attr_name}: {value}")
         
-        # Inversione per lock e battery
-        if self._attr_device_class in [BinarySensorDeviceClass.LOCK, BinarySensorDeviceClass.BATTERY]:
+        # Inversione per sensori con logica invertita
+        if self._invert and value is not None:
             self._value = not value
         else:
             self._value = value
