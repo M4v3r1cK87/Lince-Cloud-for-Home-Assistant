@@ -1,7 +1,7 @@
 {
   "domain": "lince_cloud",
   "name": "Lince Cloud for Home Assistant",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "documentation": "https://www.lince.net/",
   "requirements": [
     "aiohttp",

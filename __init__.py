@@ -4,6 +4,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN
+from .euronet.const import (
+    CONF_LOCAL_MODE, 
+    CONF_HOST, 
+    CONF_PASSWORD,
+    CONF_INSTALLER_CODE,
+    DEFAULT_LOCAL_USERNAME,
+)
 from .factory import ComponentFactory
 import logging
 import asyncio
@@ -13,13 +20,97 @@ _LOGGER = logging.getLogger(__name__)
 
 platforms = ["sensor", "switch", "binary_sensor", "alarm_control_panel"]
 
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate old entry to new version."""
+    _LOGGER.info(f"Migrating from version {config_entry.version}")
+    
+    if config_entry.version == 1:
+        # Versione 1 -> 2: aggiungiamo CONF_LOCAL_MODE = False per entry cloud esistenti
+        new_data = {**config_entry.data}
+        new_data[CONF_LOCAL_MODE] = False
+        
+        hass.config_entries.async_update_entry(
+            config_entry, 
+            data=new_data,
+            version=2
+        )
+        _LOGGER.info(f"Migration to version 2 successful")
+    
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up LinceCloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN]["notifications_enabled"] = {}
     
-    email = config_entry.data["email"]
-    password = config_entry.data["password"]
+    # Controlla se è modalità locale o cloud
+    local_mode = config_entry.data.get(CONF_LOCAL_MODE, False)
+    
+    if local_mode:
+        return await _async_setup_local_entry(hass, config_entry)
+    else:
+        return await _async_setup_cloud_entry(hass, config_entry)
+
+
+async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Setup per connessione locale diretta alla centrale."""
+    _LOGGER.info("Configurazione modalità LOCALE")
+    
+    host = config_entry.data[CONF_HOST]
+    password = config_entry.data[CONF_PASSWORD]
+    installer_code = config_entry.data.get(CONF_INSTALLER_CODE, "")
+    
+    # Importa client locale
+    from .euronet import EuroNetClient
+    from .euronet.coordinator import EuroNetCoordinator
+    
+    # Crea client locale (username è sempre "admin")
+    client = EuroNetClient(
+        host=host,
+        username=DEFAULT_LOCAL_USERNAME,
+        password=password,
+    )
+    
+    # Codice installatore: per leggere configurazioni zone/tempi
+    # Il codice utente per arm/disarm viene inserito real-time nel pannello allarme
+    client.installer_code = installer_code
+    
+    # Crea coordinator locale
+    coordinator = EuroNetCoordinator(hass, client, config_entry)
+    
+    # Primo refresh
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as e:
+        _LOGGER.warning("Primo refresh locale fallito: %s. Retry automatico attivo", e)
+    
+    # Salva in hass.data
+    hass.data[DOMAIN]["local_mode"] = True
+    hass.data[DOMAIN]["local_client"] = client
+    hass.data[DOMAIN]["coordinator"] = coordinator
+    hass.data[DOMAIN]["api"] = None  # Non usato in modalità locale
+    hass.data[DOMAIN]["primary_brand"] = "lince-europlus"
+    
+    _LOGGER.info(f"LinceCloud LOCAL setup completato. Host: {host}")
+    
+    # Setup delle piattaforme
+    await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
+    
+    return True
+
+
+async def _async_setup_cloud_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Setup per connessione cloud (comportamento originale)."""
+    _LOGGER.info("Configurazione modalità CLOUD")
+    
+    email = config_entry.data.get("email")
+    password = config_entry.data.get("password")
+    
+    if not email or not password:
+        _LOGGER.error("Credenziali cloud mancanti")
+        return False
 
     # API comune per login iniziale e fetch systems
     from .common.api import CommonAPI
@@ -66,6 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     coordinator = ComponentFactory.get_coordinator(primary_brand, hass, api, config_entry)
     
     # Salva informazioni sui brand per uso futuro
+    hass.data[DOMAIN]["local_mode"] = False
     hass.data[DOMAIN]["brands_count"] = brands_count
     hass.data[DOMAIN]["primary_brand"] = primary_brand
     hass.data[DOMAIN]["systems"] = systems
@@ -79,7 +171,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.data[DOMAIN]["api"] = api
     hass.data[DOMAIN]["coordinator"] = coordinator
     
-    _LOGGER.info(f"LinceCloud setup completato. Brand primario: {primary_brand}")
+    _LOGGER.info(f"LinceCloud CLOUD setup completato. Brand primario: {primary_brand}")
 
     # Registra i servizi se non sono già registrati
     if not hass.services.has_service(DOMAIN, "reload"):
@@ -111,8 +203,28 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     # Handler per chiusura pulita al shutdown
     async def handle_homeassistant_stop(event):
-        """Chiudi tutte le socket quando HA si ferma."""
-        _LOGGER.info("Home Assistant in chiusura, chiudo tutte le socket...")
+        """Chiudi tutte le connessioni quando HA si ferma."""
+        _LOGGER.info("Home Assistant in chiusura, chiudo tutte le connessioni...")
+        
+        # Shutdown del coordinator (cancella task in background)
+        coordinator = hass.data[DOMAIN].get("coordinator")
+        if coordinator and hasattr(coordinator, "async_shutdown"):
+            try:
+                await coordinator.async_shutdown()
+                _LOGGER.info("Shutdown coordinator completato")
+            except Exception as e:
+                _LOGGER.error(f"Errore shutdown coordinator: {e}")
+        
+        # Logout da EuroNET locale se in modalità locale
+        local_client = hass.data[DOMAIN].get("local_client")
+        if local_client:
+            try:
+                await hass.async_add_executor_job(local_client.logout, True)
+                _LOGGER.info("Logout EuroNET effettuato durante shutdown")
+            except Exception as e:
+                _LOGGER.error(f"Errore logout EuroNET durante shutdown: {e}")
+        
+        # Chiudi socket cloud
         api = hass.data[DOMAIN].get("api")
         if api and hasattr(api, 'close_all_sockets'):
             try:
@@ -133,7 +245,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Scarica l'integrazione e chiudi tutte le socket."""
     _LOGGER.info("Scaricamento integrazione LinceCloud...")
     
-    # Chiudi tutte le socket prima di scaricare
+    # Se in modalità locale, fai logout dal dispositivo EuroNET
+    local_client = hass.data[DOMAIN].get("local_client")
+    if local_client:
+        try:
+            # Esegui logout in un executor (è sincrono)
+            await hass.async_add_executor_job(local_client.logout, True)
+            _LOGGER.info("Logout EuroNET effettuato durante unload")
+        except Exception as e:
+            _LOGGER.error(f"Errore logout EuroNET durante unload: {e}")
+    
+    # Chiudi tutte le socket prima di scaricare (modalità cloud)
     api = hass.data[DOMAIN].get("api")
     if api and hasattr(api, 'close_all_sockets'):
         try:
@@ -142,10 +264,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error(f"Errore chiusura socket durante unload: {e}")
     
-    # Cancella il task di retry del coordinator se esiste
+    # Cancella i task in background del coordinator
     coordinator = hass.data[DOMAIN].get("coordinator")
-    if coordinator and hasattr(coordinator, "_retry_task") and coordinator._retry_task:
-        coordinator._retry_task.cancel()
+    if coordinator:
+        # Per modalità locale, usa async_shutdown se disponibile
+        if hasattr(coordinator, "async_shutdown"):
+            try:
+                await coordinator.async_shutdown()
+                _LOGGER.info("Shutdown coordinator completato")
+            except Exception as e:
+                _LOGGER.error(f"Errore shutdown coordinator: {e}")
+        # Per modalità cloud, cancella _retry_task se esiste
+        elif hasattr(coordinator, "_retry_task") and coordinator._retry_task:
+            coordinator._retry_task.cancel()
     
     # Scarica le piattaforme
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
@@ -159,11 +290,25 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry):
     """Options changed: aggiorna il coordinator senza ricaricare l'entry."""
     _LOGGER.info("Options changed for %s: refreshing only", entry.entry_id)
+    
+    # Controlla se siamo in modalità locale
+    local_mode = entry.data.get(CONF_LOCAL_MODE, False)
+    
     coord = hass.data[DOMAIN].get("coordinator")
     if coord:
-        # Aggiorna le opzioni nel coordinator
-        coord.systems_config = entry.options.get("systems_config", {})
-        coord.arm_profiles = entry.options.get("arm_profiles", {})
+        if local_mode:
+            # Modalità locale: verifica se il codice installatore è stato aggiunto/modificato
+            # In questo caso forziamo il reload delle configurazioni zone
+            installer_code = entry.data.get(CONF_INSTALLER_CODE, "")
+            if installer_code and hasattr(coord, 'reset_zone_configs_cache'):
+                # Il codice installatore è presente, resetta la cache per ricaricare le zone
+                coord.reset_zone_configs_cache()
+                _LOGGER.info("Installer code presente - zone configs verranno ricaricate")
+        else:
+            # Modalità cloud: aggiorna le opzioni nel coordinator
+            coord.systems_config = entry.options.get("systems_config", {})
+            coord.arm_profiles = entry.options.get("arm_profiles", {})
+        
         await coord.async_request_refresh()
 
 

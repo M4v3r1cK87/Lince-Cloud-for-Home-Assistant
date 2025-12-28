@@ -7,24 +7,69 @@ from homeassistant.config_entries import OptionsFlowWithReload
 from homeassistant.helpers.selector import (
     TextSelector, TextSelectorConfig, TextSelectorType,
     SelectSelector, SelectSelectorConfig, SelectOptionDict, SelectSelectorMode,
+    BooleanSelector,
 )
 from .const import DOMAIN
-from .common.api import CommonAPI  # ✅ Questo è corretto, la classe esiste
+from .common.api import CommonAPI
 from .factory import ComponentFactory
+from .euronet.const import (
+    # Configurazione connessione
+    CONF_LOCAL_MODE,
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_INSTALLER_CODE,
+    DEFAULT_LOCAL_USERNAME,
+    # Zone
+    CONF_NUM_ZONE_FILARI,
+    CONF_NUM_ZONE_RADIO,
+    MAX_FILARI as LOCAL_MAX_FILARI,
+    MAX_RADIO as LOCAL_MAX_RADIO,
+    DEFAULT_FILARI as LOCAL_DEFAULT_FILARI,
+    DEFAULT_RADIO as LOCAL_DEFAULT_RADIO,
+    # ARM profiles
+    CONF_ARM_PROFILES,
+    PROGRAMS as LOCAL_PROGRAMS,
+    PROGRAM_BITS as LOCAL_PROGRAM_BITS,
+    DEFAULT_ARM_PROFILES as LOCAL_DEFAULT_ARM_PROFILES,
+    # Polling
+    CONF_POLLING_INTERVAL,
+    DEFAULT_POLLING_INTERVAL_MS,
+    POLLING_INTERVAL_OPTIONS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow: SOLO login (email/password)."""
-    VERSION = 1
+    """Config flow: selezione modalità cloud o locale."""
+    VERSION = 2  # Incrementato per nuova struttura dati
+
+    def __init__(self):
+        """Inizializza il config flow."""
+        self._local_data: dict = {}  # Dati temporanei per modalità locale
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+        """Step iniziale: scegli modalità cloud o locale."""
         errors = {}
+        
         if user_input is not None:
-            # Usa CommonAPI per il login iniziale - questo è corretto
-            api = CommonAPI(self.hass)  # ✅ CommonAPI esiste in common/api.py
+            # Salva la scelta e vai allo step appropriato
+            if user_input.get(CONF_LOCAL_MODE, False):
+                return await self.async_step_local_login()
+            else:
+                return await self.async_step_cloud_login()
+
+        schema = vol.Schema({
+            vol.Required(CONF_LOCAL_MODE, default=False): BooleanSelector(),
+        })
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    async def async_step_cloud_login(self, user_input=None):
+        """Step login cloud (comportamento originale)."""
+        errors = {}
+        
+        if user_input is not None:
+            api = CommonAPI(self.hass)
             try:
                 await api.login(user_input["email"], user_input["password"])
                 if not api.token:
@@ -32,10 +77,14 @@ class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     return self.async_create_entry(
                         title=f"Lince Cloud ({user_input['email']})",
-                        data={"email": user_input["email"], "password": user_input["password"]},
+                        data={
+                            CONF_LOCAL_MODE: False,
+                            "email": user_input["email"], 
+                            "password": user_input["password"],
+                        },
                     )
             except Exception as e:
-                _LOGGER.error(f"Login fallito: {e}")
+                _LOGGER.error(f"Login cloud fallito: {e}")
                 errors["base"] = "auth_failed"
 
         schema = vol.Schema({
@@ -46,7 +95,202 @@ class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="password")
             ),
         })
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="cloud_login", data_schema=schema, errors=errors)
+
+    async def async_step_local_login(self, user_input=None):
+        """Step login locale (nuova modalità)."""
+        errors = {}
+        
+        if user_input is not None:
+            host = user_input.get(CONF_HOST, "").strip()
+            password = user_input.get(CONF_PASSWORD, "")
+            installer_code = user_input.get(CONF_INSTALLER_CODE, "").strip()
+            
+            # Validazione base
+            if not host:
+                errors[CONF_HOST] = "invalid_host"
+            else:
+                # Testa la connessione (username è sempre "admin")
+                try:
+                    from .euronet import EuroNetClient
+                    client = EuroNetClient(
+                        host=host,
+                        username=DEFAULT_LOCAL_USERNAME,
+                        password=password,
+                    )
+                    # Test connessione in executor per non bloccare
+                    connected = await self.hass.async_add_executor_job(
+                        client.test_connection
+                    )
+                    if not connected:
+                        errors["base"] = "connection_failed"
+                    else:
+                        # Salva i dati e vai alla configurazione zone/profili
+                        self._local_data = {
+                            CONF_LOCAL_MODE: True,
+                            CONF_HOST: host,
+                            CONF_PASSWORD: password,
+                            CONF_INSTALLER_CODE: installer_code,
+                        }
+                        return await self.async_step_local_config()
+                except Exception as e:
+                    _LOGGER.error(f"Connessione locale fallita: {e}")
+                    errors["base"] = "connection_failed"
+
+        schema = vol.Schema({
+            vol.Required(CONF_HOST): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
+            vol.Required(CONF_PASSWORD): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="password")
+            ),
+            vol.Optional(CONF_INSTALLER_CODE): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD)
+            ),
+        })
+        return self.async_show_form(step_id="local_login", data_schema=schema, errors=errors)
+
+    async def async_step_local_config(self, user_input=None):
+        """Step configurazione zone e profili ARM per modalità locale."""
+        errors = {}
+        
+        # Opzioni per i programmi
+        prog_options = [
+            SelectOptionDict(value=prog, label=prog.upper())
+            for prog in LOCAL_PROGRAMS
+        ]
+        
+        # Opzioni polling interval (converti ms in label leggibili)
+        polling_options = []
+        for ms_value in POLLING_INTERVAL_OPTIONS:
+            if ms_value < 1000:
+                label = f"{ms_value}ms"
+            else:
+                label = f"{ms_value // 1000} secondo" if ms_value == 1000 else f"{ms_value // 1000} secondi"
+            polling_options.append(SelectOptionDict(value=str(ms_value), label=label))
+        
+        # Default values
+        defaults = {
+            CONF_NUM_ZONE_FILARI: LOCAL_DEFAULT_FILARI,
+            CONF_NUM_ZONE_RADIO: LOCAL_DEFAULT_RADIO,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL_MS,
+            "home": LOCAL_DEFAULT_ARM_PROFILES.get("home", []),
+            "away": LOCAL_DEFAULT_ARM_PROFILES.get("away", []),
+            "night": LOCAL_DEFAULT_ARM_PROFILES.get("night", []),
+            "vacation": LOCAL_DEFAULT_ARM_PROFILES.get("vacation", []),
+        }
+        
+        if user_input is not None:
+            # Parse numerici
+            try:
+                num_filari = int(user_input.get(CONF_NUM_ZONE_FILARI, LOCAL_DEFAULT_FILARI))
+                num_radio = int(user_input.get(CONF_NUM_ZONE_RADIO, LOCAL_DEFAULT_RADIO))
+            except (ValueError, TypeError):
+                num_filari, num_radio = LOCAL_DEFAULT_FILARI, LOCAL_DEFAULT_RADIO
+            
+            # Clamp ai massimi
+            num_filari = min(max(0, num_filari), LOCAL_MAX_FILARI)
+            num_radio = min(max(0, num_radio), LOCAL_MAX_RADIO)
+            
+            # Parse polling interval
+            polling_interval = user_input.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL_MS)
+            if isinstance(polling_interval, str):
+                polling_interval = int(polling_interval)
+            
+            # Profili ARM
+            arm_profiles = {
+                "home": user_input.get("home", []) or [],
+                "away": user_input.get("away", []) or [],
+                "night": user_input.get("night", []) or [],
+                "vacation": user_input.get("vacation", []) or [],
+            }
+            
+            # Validazione: profili con mask unica
+            def to_mask(progs):
+                m = 0
+                for p in progs or []:
+                    m |= LOCAL_PROGRAM_BITS.get(p, 0)
+                return m
+            
+            masks = {k: to_mask(v) for k, v in arm_profiles.items()}
+            
+            # Conta duplicati (escludo mask=0)
+            count_by_mask = {}
+            for mode, m in masks.items():
+                if m != 0:
+                    count_by_mask[m] = count_by_mask.get(m, 0) + 1
+            
+            dup_modes = [mode for mode, m in masks.items() if m != 0 and count_by_mask.get(m, 0) > 1]
+            
+            if dup_modes:
+                errors["base"] = "duplicate_profiles"
+                for mode in dup_modes:
+                    errors[mode] = "duplicate_profile"
+            else:
+                # Tutto OK, crea l'entry
+                host = self._local_data.get(CONF_HOST, "")
+                return self.async_create_entry(
+                    title=f"Modulo EuroNET ({host})",
+                    data=self._local_data,
+                    options={
+                        CONF_NUM_ZONE_FILARI: num_filari,
+                        CONF_NUM_ZONE_RADIO: num_radio,
+                        CONF_ARM_PROFILES: arm_profiles,
+                        CONF_POLLING_INTERVAL: polling_interval,
+                    },
+                )
+        
+        # Schema del form
+        schema = vol.Schema({
+            vol.Required(CONF_NUM_ZONE_FILARI, default=defaults[CONF_NUM_ZONE_FILARI]): 
+                vol.All(vol.Coerce(int), vol.Range(min=0, max=LOCAL_MAX_FILARI)),
+            vol.Required(CONF_NUM_ZONE_RADIO, default=defaults[CONF_NUM_ZONE_RADIO]): 
+                vol.All(vol.Coerce(int), vol.Range(min=0, max=LOCAL_MAX_RADIO)),
+            vol.Required(CONF_POLLING_INTERVAL, default=str(defaults[CONF_POLLING_INTERVAL])): SelectSelector(
+                SelectSelectorConfig(
+                    options=polling_options,
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("home", default=defaults["home"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("away", default=defaults["away"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("night", default=defaults["night"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("vacation", default=defaults["vacation"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+        })
+        
+        return self.async_show_form(
+            step_id="local_config", 
+            data_schema=schema, 
+            errors=errors,
+            description_placeholders={
+                "max_filari": LOCAL_MAX_FILARI,
+                "max_radio": LOCAL_MAX_RADIO,
+            },
+        )
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -118,10 +362,15 @@ class LinceGoldCloudOptionsFlow(OptionsFlowWithReload):
         return None
 
     async def async_step_init(self, user_input=None):
-        """Step iniziale: selezione della centrale."""
+        """Step iniziale: selezione della centrale o configurazione locale."""
         errors = {}
         
-        # Carica lista centrali
+        # Controlla se siamo in modalità locale
+        if self._entry.data.get(CONF_LOCAL_MODE, False):
+            # Modalità LOCALE: vai direttamente alla configurazione
+            return await self.async_step_local_options()
+        
+        # Modalità CLOUD: carica lista centrali
         email = self._entry.data.get("email")
         password = self._entry.data.get("password")
         api = CommonAPI(self.hass)  # ✅ CommonAPI esiste in common/api.py
@@ -424,6 +673,193 @@ class LinceGoldCloudOptionsFlow(OptionsFlowWithReload):
                 "brand": brand,
                 "max_filari": MAX_FILARI_BRAND,
                 "max_radio": MAX_RADIO_BRAND
+            },
+        )
+
+    async def async_step_local_options(self, user_input=None):
+        """Step configurazione opzioni per modalità locale."""
+        errors = {}
+        
+        # Opzioni per i programmi
+        prog_options = [
+            SelectOptionDict(value=prog, label=prog.upper())
+            for prog in LOCAL_PROGRAMS
+        ]
+        
+        # Carica valori correnti dalle options
+        current_options = self._entry.options or {}
+        arm_profiles = current_options.get(CONF_ARM_PROFILES, LOCAL_DEFAULT_ARM_PROFILES)
+        
+        defaults = {
+            CONF_POLLING_INTERVAL: current_options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL_MS),
+            CONF_NUM_ZONE_FILARI: current_options.get(CONF_NUM_ZONE_FILARI, LOCAL_DEFAULT_FILARI),
+            CONF_NUM_ZONE_RADIO: current_options.get(CONF_NUM_ZONE_RADIO, LOCAL_DEFAULT_RADIO),
+            "home": arm_profiles.get("home", LOCAL_DEFAULT_ARM_PROFILES.get("home", [])),
+            "away": arm_profiles.get("away", LOCAL_DEFAULT_ARM_PROFILES.get("away", [])),
+            "night": arm_profiles.get("night", LOCAL_DEFAULT_ARM_PROFILES.get("night", [])),
+            "vacation": arm_profiles.get("vacation", LOCAL_DEFAULT_ARM_PROFILES.get("vacation", [])),
+        }
+        
+        if user_input is not None:
+            # Parse polling interval
+            polling_interval = user_input.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL_MS)
+            if isinstance(polling_interval, str):
+                polling_interval = int(polling_interval)
+            
+            # Parse numerici zone
+            try:
+                num_filari = int(user_input.get(CONF_NUM_ZONE_FILARI, LOCAL_DEFAULT_FILARI))
+                num_radio = int(user_input.get(CONF_NUM_ZONE_RADIO, LOCAL_DEFAULT_RADIO))
+            except (ValueError, TypeError):
+                num_filari, num_radio = LOCAL_DEFAULT_FILARI, LOCAL_DEFAULT_RADIO
+            
+            # Clamp ai massimi
+            num_filari = min(max(0, num_filari), LOCAL_MAX_FILARI)
+            num_radio = min(max(0, num_radio), LOCAL_MAX_RADIO)
+            
+            # Profili ARM
+            new_arm_profiles = {
+                "home": user_input.get("home", []) or [],
+                "away": user_input.get("away", []) or [],
+                "night": user_input.get("night", []) or [],
+                "vacation": user_input.get("vacation", []) or [],
+            }
+            
+            # Validazione: profili con mask unica
+            def to_mask(progs):
+                m = 0
+                for p in progs or []:
+                    m |= LOCAL_PROGRAM_BITS.get(p, 0)
+                return m
+            
+            masks = {k: to_mask(v) for k, v in new_arm_profiles.items()}
+            
+            # Conta duplicati (escludo mask=0)
+            count_by_mask = {}
+            for mode, m in masks.items():
+                if m != 0:
+                    count_by_mask[m] = count_by_mask.get(m, 0) + 1
+            
+            dup_modes = [mode for mode, m in masks.items() if m != 0 and count_by_mask.get(m, 0) > 1]
+            
+            if dup_modes:
+                errors["base"] = "duplicate_profiles"
+                for mode in dup_modes:
+                    errors[mode] = "duplicate_profile"
+            else:
+                # Gestisci password e installer_code
+                # Se vuoti, mantieni i valori esistenti; altrimenti aggiorna
+                new_password = user_input.get(CONF_PASSWORD, "").strip()
+                new_installer_code = user_input.get(CONF_INSTALLER_CODE, "").strip()
+                
+                current_data = dict(self._entry.data)
+                data_changed = False
+                installer_code_changed = False
+                
+                if new_password:
+                    current_data[CONF_PASSWORD] = new_password
+                    data_changed = True
+                
+                if new_installer_code:
+                    # Verifica se il codice installatore è cambiato
+                    old_installer_code = self._entry.data.get(CONF_INSTALLER_CODE, "")
+                    if new_installer_code != old_installer_code:
+                        installer_code_changed = True
+                    current_data[CONF_INSTALLER_CODE] = new_installer_code
+                    data_changed = True
+                
+                # Aggiorna config_entry.data se ci sono modifiche alle credenziali
+                if data_changed:
+                    self.hass.config_entries.async_update_entry(
+                        self._entry, data=current_data
+                    )
+                
+                # Se il codice installatore è cambiato, forza reload dell'integrazione
+                # per ricaricare le configurazioni delle zone
+                if installer_code_changed:
+                    _LOGGER.info("Codice installatore modificato - reload integrazione per ricaricare zone")
+                    # Schedula il reload dopo che l'options flow è completato
+                    self.hass.async_create_task(
+                        self.hass.config_entries.async_reload(self._entry.entry_id)
+                    )
+                
+                # Salva le nuove opzioni
+                new_options = {
+                    CONF_POLLING_INTERVAL: polling_interval,
+                    CONF_NUM_ZONE_FILARI: num_filari,
+                    CONF_NUM_ZONE_RADIO: num_radio,
+                    CONF_ARM_PROFILES: new_arm_profiles,
+                }
+                return self.async_create_entry(title="", data=new_options)
+        
+        # Opzioni per polling interval (converti ms in label leggibili)
+        polling_options = []
+        for ms in POLLING_INTERVAL_OPTIONS:
+            if ms < 1000:
+                label = f"{ms}ms"
+            elif ms < 60000:
+                label = f"{ms // 1000}s"
+            else:
+                label = f"{ms // 60000}min"
+            polling_options.append(SelectOptionDict(value=str(ms), label=label))
+        
+        # Schema del form - password e codice mostrati come opzionali (vuoto = non modificare)
+        schema = vol.Schema({
+            vol.Optional(CONF_PASSWORD): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(CONF_INSTALLER_CODE): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD)
+            ),
+            vol.Required(CONF_POLLING_INTERVAL, default=str(defaults[CONF_POLLING_INTERVAL])): SelectSelector(
+                SelectSelectorConfig(
+                    options=polling_options,
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Required(CONF_NUM_ZONE_FILARI, default=defaults[CONF_NUM_ZONE_FILARI]): 
+                vol.All(vol.Coerce(int), vol.Range(min=0, max=LOCAL_MAX_FILARI)),
+            vol.Required(CONF_NUM_ZONE_RADIO, default=defaults[CONF_NUM_ZONE_RADIO]): 
+                vol.All(vol.Coerce(int), vol.Range(min=0, max=LOCAL_MAX_RADIO)),
+            vol.Optional("home", default=defaults["home"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("away", default=defaults["away"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("night", default=defaults["night"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("vacation", default=defaults["vacation"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=prog_options, 
+                    multiple=True, 
+                    mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+        })
+        
+        host = self._entry.data.get(CONF_HOST, "Locale")
+        return self.async_show_form(
+            step_id="local_options", 
+            data_schema=schema, 
+            errors=errors,
+            description_placeholders={
+                "host": host,
+                "max_filari": LOCAL_MAX_FILARI,
+                "max_radio": LOCAL_MAX_RADIO,
             },
         )
     

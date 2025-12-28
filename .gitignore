@@ -28,3 +28,4 @@ ENV/
 *.log
 .DS_Store
 git_pu*
+test*.py

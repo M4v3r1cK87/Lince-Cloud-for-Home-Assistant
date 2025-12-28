@@ -32,10 +32,11 @@ TOKEN_EXPIRY_MINUTES = 60
 TOKEN_SAFETY_SKEW_SECONDS = 30
 AUTH_FAIL_NOTIFY_COOLDOWN = 15 * 60  # 15 minuti
 
-# Default mapping stati
+# Default mapping stati (cloud)
 DEFAULT_MODE_MAP = {
     "home": ["g1"],
     "away": ["g1", "g2", "g3"],
     "night": ["g2"],
     "vacation": ["g3"],
 }
+DEFAULT_LOCAL_TIMEOUT = 10
