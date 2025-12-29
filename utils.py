@@ -58,13 +58,13 @@ def convert_zone_attributes(zone_type, zone_state):
         attributes['Batteria'] = zone_state['lo_batt_radio']
     return attributes
 
-def is_notifications_enabled(hass, centrale_id: Optional[int] = None) -> bool:
+def is_notifications_enabled(hass, centrale_id: Optional[Any] = None) -> bool:
     """
     Controlla se le notifiche sono abilitate per una centrale specifica o globalmente.
     
     Args:
         hass: Home Assistant instance
-        centrale_id: ID della centrale (opzionale)
+        centrale_id: ID della centrale (int per cloud, str/host per locale)
         
     Returns:
         bool: True se le notifiche sono abilitate
@@ -74,7 +74,7 @@ def is_notifications_enabled(hass, centrale_id: Optional[int] = None) -> bool:
     
     notifications_settings = hass.data[DOMAIN].get("notifications_enabled", {})
     
-    if centrale_id:
+    if centrale_id is not None:
         # Controlla per centrale specifica
         result = notifications_settings.get(centrale_id, True)
         _LOGGER.debug(f"Notifiche per centrale {centrale_id}: {result}")
@@ -260,7 +260,7 @@ async def send_multiple_notifications(
     persistent_id: Optional[str] = None,
     data: Optional[Dict[str, Any]] = None,
     mobile: bool = True,
-    centrale_id: Optional[int] = None,
+    centrale_id: Any = None,
     force: bool = False
 ) -> Dict[str, bool]:
     """

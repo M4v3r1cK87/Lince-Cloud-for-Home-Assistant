@@ -356,7 +356,7 @@ class EuroplusAPI(CommonAPI):
             return
 
         try:
-            title = "LinceCloud Europlus: autenticazione richiesta"
+            title = "Lince Alarm Europlus: autenticazione richiesta"
             msg = (
                 f"Centrale Europlus **{row_id}**: impossibile rinnovare l'autenticazione.\n\n"
                 f"Motivo: `{reason}`.\n\n"

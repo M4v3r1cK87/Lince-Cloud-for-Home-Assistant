@@ -7,6 +7,7 @@
 # Chiavi config_entry
 CONF_LOCAL_MODE = "local_mode"
 CONF_HOST = "host"
+CONF_PORT = "port"
 CONF_PASSWORD = "password"
 CONF_INSTALLER_CODE = "installer_code"
 

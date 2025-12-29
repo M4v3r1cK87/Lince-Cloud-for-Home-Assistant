@@ -125,7 +125,7 @@ class EuroNetSensor(CoordinatorEntity, SensorEntity):
             "identifiers": {(DOMAIN, f"euronet_{host}")},
             "name": f"EuroNET ({host})",
             "manufacturer": MANUFACTURER,
-            "model": "EuroPlus/EuroNET",
+            "model": "4124EURONET",
             "sw_version": sw_version,
         }
 

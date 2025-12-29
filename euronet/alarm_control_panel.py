@@ -93,7 +93,7 @@ class EuroNetAlarmPanel(CoordinatorEntity, AlarmControlPanelEntity):
             "identifiers": {(DOMAIN, f"euronet_{host}")},
             "name": f"EuroNET ({host})",
             "manufacturer": MANUFACTURER,
-            "model": "EuroPlus/EuroNET",
+            "model": "4124EURONET",
             "sw_version": sw_version,
         }
 
@@ -103,31 +103,67 @@ class EuroNetAlarmPanel(CoordinatorEntity, AlarmControlPanelEntity):
             return self.coordinator.data[0]
         return None
 
+    def _get_active_programs(self, system: dict) -> set[str]:
+        """Restituisce il set di programmi attualmente attivi."""
+        active = set()
+        if system.get("g1", False):
+            active.add("G1")
+        if system.get("g2", False):
+            active.add("G2")
+        if system.get("g3", False):
+            active.add("G3")
+        if system.get("gext", False):
+            active.add("GEXT")
+        return active
+    
+    def _get_configured_profiles(self) -> dict[str, set[str]]:
+        """Restituisce i profili configurati con i loro programmi."""
+        arm_profiles = self._config_entry.options.get(CONF_ARM_PROFILES, {})
+        profiles = {}
+        for mode in ["away", "home", "night", "vacation"]:
+            programs = arm_profiles.get(mode, [])
+            if programs:
+                profiles[mode] = set(p.upper() for p in programs)
+        return profiles
+
     @property
     def alarm_state(self) -> AlarmControlPanelState | None:
-        """Restituisce lo stato del pannello."""
+        """Restituisce lo stato del pannello basato sui profili configurati."""
         system = self._get_system_data()
         if system:
             # Prima controlla se c'è un allarme in corso
             if system.get("allarme", False):
                 return AlarmControlPanelState.TRIGGERED
             
-            # Controlla i programmi attivi
-            g1 = system.get("g1", False)
-            g2 = system.get("g2", False)
-            g3 = system.get("g3", False)
-            gext = system.get("gext", False)
+            # Ottieni i programmi attivi
+            active_programs = self._get_active_programs(system)
             
-            # Se almeno un programma è attivo
-            if g1 or g2 or g3 or gext:
-                # Se G1 attivo -> armed_away (totale)
-                if g1:
-                    return AlarmControlPanelState.ARMED_AWAY
-                else:
-                    # Solo G2/G3/GEXT -> armed_home (parziale)
-                    return AlarmControlPanelState.ARMED_HOME
+            # Se nessun programma attivo -> disarmato
+            if not active_programs:
+                return AlarmControlPanelState.DISARMED
             
-            return AlarmControlPanelState.DISARMED
+            # Ottieni i profili configurati
+            profiles = self._get_configured_profiles()
+            
+            # Cerca una corrispondenza esatta con i profili configurati
+            # Ordine di priorità: away, home, night, vacation
+            mode_mapping = {
+                "away": AlarmControlPanelState.ARMED_AWAY,
+                "home": AlarmControlPanelState.ARMED_HOME,
+                "night": AlarmControlPanelState.ARMED_NIGHT,
+                "vacation": AlarmControlPanelState.ARMED_VACATION,
+            }
+            
+            for mode, state in mode_mapping.items():
+                if mode in profiles and profiles[mode] == active_programs:
+                    return state
+            
+            # Se non c'è corrispondenza esatta, usa una logica di fallback
+            # basata sul numero di programmi attivi
+            if len(active_programs) >= 2:
+                return AlarmControlPanelState.ARMED_AWAY
+            else:
+                return AlarmControlPanelState.ARMED_HOME
         
         return None
 
@@ -177,7 +213,7 @@ class EuroNetAlarmPanel(CoordinatorEntity, AlarmControlPanelEntity):
         
         _LOGGER.info("Armo allarme modalità away con programmi: %s", programs)
         try:
-            await self.coordinator.async_arm(code, programs)
+            await self.coordinator.async_arm(code, programs, arm_mode="away")
         except Exception as e:
             _LOGGER.error(f"Errore durante l'inserimento: {e}")
 
@@ -194,7 +230,7 @@ class EuroNetAlarmPanel(CoordinatorEntity, AlarmControlPanelEntity):
         
         _LOGGER.info("Armo allarme modalità home con programmi: %s", programs)
         try:
-            await self.coordinator.async_arm(code, programs)
+            await self.coordinator.async_arm(code, programs, arm_mode="home")
         except Exception as e:
             _LOGGER.error(f"Errore durante l'inserimento: {e}")
 
@@ -211,7 +247,7 @@ class EuroNetAlarmPanel(CoordinatorEntity, AlarmControlPanelEntity):
         
         _LOGGER.info("Armo allarme modalità night con programmi: %s", programs)
         try:
-            await self.coordinator.async_arm(code, programs)
+            await self.coordinator.async_arm(code, programs, arm_mode="night")
         except Exception as e:
             _LOGGER.error(f"Errore durante l'inserimento: {e}")
 
@@ -228,6 +264,6 @@ class EuroNetAlarmPanel(CoordinatorEntity, AlarmControlPanelEntity):
         
         _LOGGER.info("Armo allarme modalità vacation con programmi: %s", programs)
         try:
-            await self.coordinator.async_arm(code, programs)
+            await self.coordinator.async_arm(code, programs, arm_mode="vacation")
         except Exception as e:
             _LOGGER.error(f"Errore durante l'inserimento: {e}")

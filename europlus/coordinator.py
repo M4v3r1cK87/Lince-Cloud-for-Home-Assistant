@@ -53,7 +53,7 @@ class EuroplusCoordinator(BaseCoordinator):
         self._last_successful_update = None
         self._connection_failed = False
         self._retry_interval = INITIAL_RETRY_INTERVAL
-        self._notification_id = "lincecloud_connection_error"
+        self._notification_id = "lince_alarm_connection_error"
         self._was_offline = False
         self._pause_auto_update = False
         self._notification_cleanup_task = None
@@ -184,7 +184,7 @@ class EuroplusCoordinator(BaseCoordinator):
             self.hass,
             f"Impossibile connettersi al cloud Lince Europlus: {error}. "
             "L'integrazione riproverà automaticamente.",
-            "Errore connessione LinceCloud Europlus",
+            "Errore connessione Lince Alarm Europlus",
             self._notification_id
         )
 
@@ -197,7 +197,7 @@ class EuroplusCoordinator(BaseCoordinator):
             await send_notification(
                 self.hass,
                 "Connessione al cloud Lince Europlus ripristinata",
-                "LinceCloud Europlus Online"
+                "Lince Alarm Europlus Online"
             )
 
     def pause_auto_update(self):

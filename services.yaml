@@ -1,6 +1,6 @@
 reload:
   name: Ricarica integrazione
-  description: Ricarica l'integrazione LinceCloud senza riavviare Home Assistant
+  description: Ricarica l'integrazione Lince Alarm senza riavviare Home Assistant
 
 sync_zones:
   name: Sincronizza zone

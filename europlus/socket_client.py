@@ -76,7 +76,7 @@ class EuroplusSocketClient(BaseSocketClient):
         #await send_multiple_notifications(
         #    self.hass,
         #    message=f"🔗 WebSocket connessa per {centrale_name}",
-        #    title=f"LinceCloud - WebSocket",
+        #    title=f"Lince Alarm - WebSocket",
         #    persistent=True,
         #    persistent_id=f"socket_connected_{self.centrale_id}",
         #    mobile=True,
@@ -106,7 +106,7 @@ class EuroplusSocketClient(BaseSocketClient):
         #await send_multiple_notifications(
         #    self.hass,
         #    message=f"🔗 WebSocket disconnessa per {centrale_name}",
-        #    title=f"LinceCloud - WebSocket",
+        #    title=f"Lince Alarm - WebSocket",
         #    persistent=True,
         #    persistent_id=f"socket_connected_{self.centrale_id}",
         #    mobile=True,
@@ -149,7 +149,7 @@ class EuroplusSocketClient(BaseSocketClient):
                     #await send_multiple_notifications(
                     #    self.hass,
                     #    message=f"🔐 Errore autenticazione WebSocket per {centrale_name}. Tentativo re-login...",
-                    #    title=f"LinceCloud - Errore Autenticazione",
+                    #    title=f"Lince Alarm - Errore Autenticazione",
                     #    persistent=True,
                     #    persistent_id=f"socket_auth_error_{self.centrale_id}",
                     #    mobile=False,

@@ -1,8 +1,8 @@
-"""Costanti per l'integrazione LinceCloud."""
+"""Costanti per l'integrazione Lince Alarm."""
 import logging
 
 # Core - OBBLIGATORIO per Home Assistant
-DOMAIN = "lince_cloud"
+DOMAIN = "lince_alarm"
 
 # Logger
 LOGGER = logging.getLogger(__package__)

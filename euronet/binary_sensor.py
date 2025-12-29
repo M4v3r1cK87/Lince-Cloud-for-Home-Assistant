@@ -149,7 +149,7 @@ class EuroNetBaseBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "identifiers": {(DOMAIN, f"euronet_{host}")},
             "name": f"EuroNET ({host})",
             "manufacturer": MANUFACTURER,
-            "model": "EuroPlus/EuroNET",
+            "model": "4124EURONET",
             "sw_version": sw_version,
         }
 
@@ -257,7 +257,7 @@ class EuroNetZoneBinarySensor(EuroNetBaseBinarySensor):
             "identifiers": {(DOMAIN, f"euronet_{host}_{zone_type}")},
             "name": f"{zone_type_label} ({host})",
             "manufacturer": MANUFACTURER,
-            "model": "EuroPlus/EuroNET",
+            "model": "4124EURONET",
             # Collega alla centrale principale tramite via_device
             "via_device": (DOMAIN, f"euronet_{host}"),
         }

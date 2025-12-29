@@ -53,7 +53,7 @@ class GoldCoordinator(BaseCoordinator):
         self._last_successful_update = None
         self._connection_failed = False
         self._retry_interval = INITIAL_RETRY_INTERVAL
-        self._notification_id = "lincecloud_gold_connection_error"  # Solo ID diverso
+        self._notification_id = "lince_alarm_gold_connection_error"  # Solo ID diverso
         self._was_offline = False
         self._pause_auto_update = False
         self._notification_cleanup_task = None
@@ -164,7 +164,7 @@ class GoldCoordinator(BaseCoordinator):
             self.hass,
             f"Impossibile connettersi al cloud Lince Gold: {error}. "
             "L'integrazione riproverà automaticamente.",
-            "Errore connessione LinceCloud Gold",
+            "Errore connessione Lince Alarm Gold",
             self._notification_id
         )
 
@@ -177,7 +177,7 @@ class GoldCoordinator(BaseCoordinator):
             await send_notification(
                 self.hass,
                 "Connessione al cloud Lince Gold ripristinata",
-                "LinceCloud Gold Online"
+                "Lince Alarm Gold Online"
             )
 
     def pause_auto_update(self):

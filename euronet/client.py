@@ -400,6 +400,7 @@ class EuroNetClient:
         host: str,
         username: str,
         password: str,
+        port: int = 80,
         timeout: int = 10
     ):
         """
@@ -409,13 +410,20 @@ class EuroNetClient:
             host: IP o hostname della centrale
             username: Username HTTP Basic Auth
             password: Password HTTP Basic Auth
+            port: Porta HTTP (default 80)
             timeout: Timeout richieste in secondi
         """
         self.host = host
+        self.port = port
         self.username = username
         self.password = password
         self.timeout = timeout
-        self.base_url = f"http://{host}"
+        
+        # Costruisci base_url con porta
+        if port == 80:
+            self.base_url = f"http://{host}"
+        else:
+            self.base_url = f"http://{host}:{port}"
         
         # Crea sessione con auth
         self.session = requests.Session()
@@ -436,8 +444,16 @@ class EuroNetClient:
         try:
             response = self.session.post(url, data=data, timeout=self.timeout)
             if response.status_code == 200:
+                # Verifica se dopo i redirect siamo finiti su NoLogin (sessione scaduta)
+                if "NoLogin" in response.url or "NoLogin" in response.text[:500]:
+                    _LOGGER.debug(f"Sessione scaduta su {endpoint} - redirect a NoLogin")
+                    return None
                 return response.text
-            _LOGGER.error(f"HTTP {response.status_code} su {endpoint}")
+            # HTTP non-200: logga come debug se è un redirect, error altrimenti
+            if response.status_code in (301, 302, 303, 307, 308):
+                _LOGGER.debug(f"HTTP {response.status_code} redirect su {endpoint}")
+            else:
+                _LOGGER.error(f"HTTP {response.status_code} su {endpoint}")
             return None
         except requests.exceptions.RequestException as e:
             _LOGGER.error(f"Errore connessione: {e}")
@@ -451,8 +467,16 @@ class EuroNetClient:
         try:
             response = self.session.get(url, timeout=self.timeout)
             if response.status_code == 200:
+                # Verifica se dopo i redirect siamo finiti su NoLogin (sessione scaduta)
+                if "NoLogin" in response.url or "NoLogin" in response.text[:500]:
+                    _LOGGER.debug(f"Sessione scaduta su {endpoint} - redirect a NoLogin")
+                    return None
                 return response.text
-            _LOGGER.error(f"HTTP {response.status_code} su {endpoint}")
+            # HTTP non-200: logga come debug se è un redirect, error altrimenti
+            if response.status_code in (301, 302, 303, 307, 308):
+                _LOGGER.debug(f"HTTP {response.status_code} redirect su {endpoint}")
+            else:
+                _LOGGER.error(f"HTTP {response.status_code} su {endpoint}")
             return None
         except requests.exceptions.RequestException as e:
             _LOGGER.error(f"Errore connessione: {e}")
@@ -605,8 +629,9 @@ class EuroNetClient:
         # Login prima
         if not self.login(code):
             return False
-            
-        time.sleep(0.5)
+        
+        # Attesa più lunga per permettere alla centrale di elaborare il login
+        time.sleep(1.5)
         
         # Costruisci query string
         params = []
@@ -617,7 +642,7 @@ class EuroNetClient:
                 
         if not params:
             _LOGGER.error("Nessun programma valido specificato")
-            self.logout()  # Logout anche in caso di errore
+            self.logout()
             return False
             
         query_string = "&".join(params)
@@ -644,8 +669,9 @@ class EuroNetClient:
         # Login prima
         if not self.login(code):
             return False
-            
-        time.sleep(0.5)
+        
+        # Attesa più lunga per permettere alla centrale di elaborare il login
+        time.sleep(1.5)
         
         response = self._get(self.ENDPOINTS["index"], "dummy=0")
         

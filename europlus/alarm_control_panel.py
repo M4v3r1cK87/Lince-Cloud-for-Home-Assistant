@@ -144,7 +144,7 @@ class EuroplusAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
             await send_multiple_notifications(
                 self.hass,
                 message=f"🔒 {self._attr_name} armata in modalità {profile_names.get(profile, profile.upper())}",
-                title=f"LinceCloud Europlus - {self._attr_name} - Sistema Armato - {profile_names.get(profile, profile.upper())}",
+                title=f"Lince Alarm Europlus - {self._attr_name} - Sistema Armato - {profile_names.get(profile, profile.upper())}",
                 persistent=True,
                 persistent_id=f"alarm_armed_{self._row_id}",
                 mobile=True,
@@ -166,7 +166,7 @@ class EuroplusAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
             await send_multiple_notifications(
                 self.hass,
                 message=f"🔓 {self._attr_name} disarmata",
-                title=f"LinceCloud Europlus - {self._attr_name} - Sistema Disarmato",
+                title=f"Lince Alarm Europlus - {self._attr_name} - Sistema Disarmato",
                 persistent=True,
                 persistent_id=f"alarm_disarmed_{self._row_id}",
                 mobile=True,
@@ -188,7 +188,7 @@ class EuroplusAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
             await send_multiple_notifications(
                 self.hass,
                 message=f"⚠️ ALLARME IN CORSO - {self._attr_name}",
-                title=f"LinceCloud Europlus - {self._attr_name} - 🚨 ALLARME SCATTATO",
+                title=f"Lince Alarm Europlus - {self._attr_name} - 🚨 ALLARME SCATTATO",
                 persistent=True,
                 persistent_id=f"alarm_triggered_{self._row_id}",
                 mobile=True,
@@ -210,7 +210,7 @@ class EuroplusAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
             await send_multiple_notifications(
                 self.hass,
                 message=f"❌ PIN errato per {self._attr_name}. {action.capitalize()} rifiutato.",
-                title=f"LinceCloud Europlus - {self._attr_name} - Errore Autenticazione",
+                title=f"Lince Alarm Europlus - {self._attr_name} - Errore Autenticazione",
                 persistent=True,
                 persistent_id=f"pin_error_{self._row_id}",
                 mobile=True,
@@ -381,7 +381,7 @@ class EuroplusAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
                         send_multiple_notifications(
                             self.hass,
                             message=f"ℹ️ {self._attr_name} è attualmente ARMATA",
-                            title=f"LinceCloud Europlus - Stato {self._attr_name}",
+                            title=f"Lince Alarm Europlus - Stato {self._attr_name}",
                             persistent=True,
                             persistent_id=f"alarm_sync_{self._row_id}",
                             mobile=False,  # No notifica mobile al boot

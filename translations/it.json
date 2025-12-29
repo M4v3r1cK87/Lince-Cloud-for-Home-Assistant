@@ -10,7 +10,7 @@
           "password": "Password"
         },
         "data_description": {
-          "local_mode": "Connessione diretta via EuroNET per centrali EuroPlus 5/10."
+          "local_mode": "Connessione diretta via EuroNET per centrali serie EuroPlus e GR868."
         }
       },
       "cloud_login": {
@@ -23,14 +23,16 @@
       },
       "local_login": {
         "title": "Connessione Locale (EuroNET)",
-        "description": "Connessione via EuroNET per centrali EuroPlus 5/10.\n\nInserisci i dati per la connessione diretta alla centrale.\n\n**Nota:** L'username per la connessione è sempre `admin`.",
+        "description": "Connessione via EuroNET per centrali serie EuroPlus e GR868.\n\nInserisci i dati per la connessione diretta alla centrale.\n\n**Nota:** L'username per la connessione è sempre `admin`.",
         "data": {
           "host": "Indirizzo IP della centrale",
+          "port": "Porta HTTP",
           "password": "Password (HTTP Basic Auth)",
           "installer_code": "Codice Installatore (opzionale)"
         },
         "data_description": {
           "host": "Es: 192.168.1.254",
+          "port": "Porta HTTP della centrale (default: 80)",
           "installer_code": "Per leggere la configurazione delle zone (nomi, tempi). Senza questo codice vedrai solo lo stato."
         }
       },

@@ -32,6 +32,7 @@ from .const import (
     CONF_INSTALLER_CODE,
     DEFAULT_LOCAL_USERNAME,
 )
+from ..utils import send_persistent_notification, send_multiple_notifications
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +69,11 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self.client = client
         self.config_entry = config_entry
         self._systems: list[dict] = []
+        
+        # Stato sessione web
+        self._session_valid = False
+        self._login_retry_count = 0
+        self._max_login_retries = 3
         
         # Cache configurazione zone (caricata una volta all'init)
         self._zone_configs: Optional[ZoneConfigs] = None
@@ -323,9 +329,56 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                         self._schedule_zone_config_retry()
                     )
         
+    async def _ensure_session(self) -> bool:
+        """Assicura che la sessione web sia valida, effettuando login se necessario.
+        
+        Returns:
+            True se la sessione è valida, False se il login fallisce
+        """
+        if self._session_valid:
+            return True
+        
+        # Ottieni il codice installatore per il login
+        installer_code = getattr(self.client, 'installer_code', None)
+        if not installer_code:
+            _LOGGER.warning("Codice installatore non configurato - alcune funzionalità potrebbero non essere disponibili")
+            # Prova comunque a leggere lo stato senza login (potrebbe funzionare per dati base)
+            return True
+        
+        _LOGGER.debug("Tentativo login sessione web EuroNET...")
+        
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.client.login, installer_code
+            )
+            if success:
+                self._session_valid = True
+                self._login_retry_count = 0
+                _LOGGER.info("Sessione web EuroNET stabilita")
+                return True
+            else:
+                self._login_retry_count += 1
+                _LOGGER.warning(
+                    "Login EuroNET fallito (tentativo %d/%d)",
+                    self._login_retry_count, self._max_login_retries
+                )
+                return False
+        except Exception as e:
+            self._login_retry_count += 1
+            _LOGGER.error("Errore durante login EuroNET: %s", e)
+            return False
+    
+    def invalidate_session(self) -> None:
+        """Invalida la sessione corrente, forzando un re-login al prossimo update."""
+        self._session_valid = False
+        _LOGGER.debug("Sessione EuroNET invalidata")
+
     async def _async_update_data(self) -> list[dict[str, Any]]:
         """Fetch data dalla centrale locale."""
         try:
+            # Assicura che la sessione sia valida
+            await self._ensure_session()
+            
             # Al primo update, carica le configurazioni delle zone
             if not self._zone_configs_loaded:
                 await self._async_load_zone_configs()
@@ -336,7 +389,19 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             )
             
             if not stato:
-                raise UpdateFailed("Impossibile leggere stato centrale")
+                # Sessione potrebbe essere scaduta - invalida e riprova
+                if self._session_valid:
+                    _LOGGER.debug("Stato centrale non disponibile - possibile sessione scaduta")
+                    self.invalidate_session()
+                    # Tenta un re-login
+                    if await self._ensure_session():
+                        # Riprova a leggere lo stato
+                        stato = await self.hass.async_add_executor_job(
+                            self.client.get_stato_centrale
+                        )
+                
+                if not stato:
+                    raise UpdateFailed("Impossibile leggere stato centrale")
             
             # Leggi zone filari
             zone_filari = await self.hass.async_add_executor_job(
@@ -353,6 +418,9 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             # per compatibilità con le piattaforme che iterano su coordinator.data
             return self._systems
             
+        except UpdateFailed:
+            # Re-raise senza log aggiuntivo (già loggato sopra)
+            raise
         except Exception as e:
             _LOGGER.error(f"Errore aggiornamento dati locali: {e}")
             raise UpdateFailed(f"Errore comunicazione: {e}")
@@ -544,12 +612,13 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         """Restituisce la lista dei sistemi."""
         return self._systems
     
-    async def async_arm(self, code: str, programs: list[str]) -> bool:
+    async def async_arm(self, code: str, programs: list[str], arm_mode: str = "away") -> bool:
         """Arma i programmi specificati.
         
         Args:
             code: Codice utente inserito nel pannello allarme
             programs: Lista programmi da armare
+            arm_mode: Modalità di armamento (away, home, night, vacation)
         """
         if not code:
             _LOGGER.error("Codice utente non fornito")
@@ -561,6 +630,33 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             )
             if result:
                 await self.async_request_refresh()
+                
+                # Invia notifica di armamento (rispetta lo switch notifiche)
+                mode_names = {
+                    "away": "Fuori casa",
+                    "home": "In casa", 
+                    "night": "Notte",
+                    "vacation": "Vacanza"
+                }
+                mode_name = mode_names.get(arm_mode, arm_mode.capitalize())
+                
+                await send_multiple_notifications(
+                    self.hass,
+                    message=f"Centrale armata in modalità **{mode_name}**",
+                    title="🔒 Allarme Attivato",
+                    persistent=True,
+                    persistent_id=f"lince_alarm_armed_{self.client.host}",
+                    mobile=True,
+                    centrale_id=self.client.host,  # Usa host per controllare le notifiche
+                    data={
+                        "tag": "lince_alarm_status",
+                        "importance": "high",
+                        "channel": "alarm",
+                        "actions": [
+                            {"action": "URI", "title": "Apri Home Assistant", "uri": "/lovelace"}
+                        ]
+                    }
+                )
             return result
         except Exception as e:
             _LOGGER.error(f"Errore arm: {e}")
@@ -582,13 +678,35 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             )
             if result:
                 await self.async_request_refresh()
+                
+                # Invia notifica di disarmo (rispetta lo switch notifiche)
+                await send_multiple_notifications(
+                    self.hass,
+                    message="Centrale disarmata",
+                    title="🔓 Allarme Disattivato",
+                    persistent=True,
+                    persistent_id=f"lince_alarm_armed_{self.client.host}",
+                    mobile=True,
+                    centrale_id=self.client.host,  # Usa host per controllare le notifiche
+                    data={
+                        "tag": "lince_alarm_status",
+                        "importance": "default",
+                        "channel": "alarm"
+                    }
+                )
             return result
         except Exception as e:
             _LOGGER.error(f"Errore disarm: {e}")
             return False
 
     async def async_shutdown(self) -> None:
-        """Cancella task in background e pulisce le risorse."""
+        """Cancella task in background, ferma il polling e pulisce le risorse."""
+        _LOGGER.info("Shutdown EuroNET coordinator...")
+        
+        # Ferma gli aggiornamenti periodici
+        self.update_interval = None
+        
+        # Cancella task retry zone config
         if self._zone_config_retry_task and not self._zone_config_retry_task.done():
             _LOGGER.debug("Cancellazione task retry zone config")
             self._zone_config_retry_task.cancel()
@@ -597,3 +715,12 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             except asyncio.CancelledError:
                 pass
             self._zone_config_retry_task = None
+        
+        # Esegui logout dal client
+        try:
+            await self.hass.async_add_executor_job(self.client.logout, True)
+            _LOGGER.info("Logout EuroNET eseguito durante shutdown coordinator")
+        except Exception as e:
+            _LOGGER.debug(f"Errore logout durante shutdown (ignorato): {e}")
+        
+        _LOGGER.info("EuroNET coordinator shutdown completato")

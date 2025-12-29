@@ -1,1 +1,1 @@
-"""Common components for LinceCloud integration."""
+"""Common components for Lince Alarm integration."""

@@ -17,7 +17,7 @@ class BaseCoordinator(DataUpdateCoordinator, ABC):
         super().__init__(
             hass,
             _LOGGER,
-            name="LinceCloud Coordinator",
+            name="Lince Alarm Coordinator",
             update_interval=update_interval,
         )
     

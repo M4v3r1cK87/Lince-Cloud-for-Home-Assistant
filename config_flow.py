@@ -1,4 +1,4 @@
-"""Config flow for LinceCloud integration."""
+"""Config flow for Lince Alarm integration."""
 from __future__ import annotations
 import logging
 import voluptuous as vol
@@ -16,9 +16,11 @@ from .euronet.const import (
     # Configurazione connessione
     CONF_LOCAL_MODE,
     CONF_HOST,
+    CONF_PORT,
     CONF_PASSWORD,
     CONF_INSTALLER_CODE,
     DEFAULT_LOCAL_USERNAME,
+    DEFAULT_LOCAL_PORT,
     # Zone
     CONF_NUM_ZONE_FILARI,
     CONF_NUM_ZONE_RADIO,
@@ -103,6 +105,7 @@ class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if user_input is not None:
             host = user_input.get(CONF_HOST, "").strip()
+            port = user_input.get(CONF_PORT, DEFAULT_LOCAL_PORT)
             password = user_input.get(CONF_PASSWORD, "")
             installer_code = user_input.get(CONF_INSTALLER_CODE, "").strip()
             
@@ -115,6 +118,7 @@ class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     from .euronet import EuroNetClient
                     client = EuroNetClient(
                         host=host,
+                        port=port,
                         username=DEFAULT_LOCAL_USERNAME,
                         password=password,
                     )
@@ -129,6 +133,7 @@ class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._local_data = {
                             CONF_LOCAL_MODE: True,
                             CONF_HOST: host,
+                            CONF_PORT: port,
                             CONF_PASSWORD: password,
                             CONF_INSTALLER_CODE: installer_code,
                         }
@@ -140,6 +145,9 @@ class LinceGoldCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema({
             vol.Required(CONF_HOST): TextSelector(
                 TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
+            vol.Optional(CONF_PORT, default=DEFAULT_LOCAL_PORT): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=65535)
             ),
             vol.Required(CONF_PASSWORD): TextSelector(
                 TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="password")

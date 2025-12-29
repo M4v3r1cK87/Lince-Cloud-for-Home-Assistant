@@ -1,253 +1,249 @@
-# Lince Alarm - Integrazione Home Assistant per Centrali Lince
+# Lince Alarm - Integrazione Home Assistant
 
 [![GitHub Release][releases-shield]][releases]
 [![GitHub Activity][commits-shield]][commits]
 [![License][license-shield]](LICENSE)
 
-Integrazione personalizzata per Home Assistant che permette il controllo e monitoraggio completo delle centrali d'allarme Lince attraverso il servizio cloud.
+Integrazione Home Assistant per il controllo e monitoraggio delle centrali d'allarme **Lince**.
 
-> ⚠️ **IMPORTANTE**: Questa integrazione richiede l'installazione di un certificato SSL per funzionare correttamente. Vedi la sezione [Configurazione Certificato SSL](#️-pre-requisito-configurazione-certificato-ssl).
-> 
-> ⚠️ **IMPORTANTE**: Questa integrazione utilizza il protocollo di comunicazione WebSocket per tutte le funzioni di comunicazioni, aggiornamento sensori e gestione del pannello di allarme. Quando la comunicazione WebSocket è attiva, il servizio Lince Cloud non potrà essere utilizzato, in quanto è possibile una sola connessione WebSocket alla volta. Stessa cosa per il servizio cloud web, se la comunicazione è attiva con il servizio, i messaggi in Home Assistant da/verso la centrale non funzioneranno.
-> 
-> ⚠️ **IMPORTANTE**: Questa integrazione funziona solo con centrali Lince EuroPlus. 
-Al momento non sono supportate le centrali Gold/Tosca (si ricercano beta tester).
+## 🎯 Centrali e Modalità Supportate
 
-## 🌟 Caratteristiche Principali
+| Centrale | Modalità Cloud | Modalità Locale (EuroNET) |
+|----------|:--------------:|:-------------------------:|
+| **EuroPlus** | ✅ | ✅ |
+| **Gold** | ✅ (beta) | ❌ |
+| **GR868** | ❌ | ✅ |
 
-### 🔐 Controllo Allarme Completo
-- **Gestione multi-profilo**: Supporto per tutti i profili di attivazione (Home, Away, Night, Vacation, Custom)
-- **Attivazione/Disattivazione**: Controllo completo con supporto PIN utente
-- **Stati in tempo reale**: Monitoraggio dello stato della centrale (Armato, Disarmato, In Allarme, Arming, Disarming)
-- **Gestione transizioni**: Visualizzazione degli stati transitori durante le operazioni
-- **Feedback ottimistico**: Risposta immediata nell'interfaccia con conferma successiva
+---
 
-### 📡 Connessione WebSocket Real-Time
-- **Eventi in tempo reale**: Ricezione immediata di tutti gli eventi dalla centrale
-- **Auto-riconnessione**: Sistema intelligente di retry con backoff esponenziale
-- **Gestione token**: Re-login automatico quando il token scade
-- **Switch di controllo**: Possibilità di attivare/disattivare la connessione WebSocket per ogni centrale
-- **Persistenza stato**: Le WebSocket si riattivano automaticamente dopo un riavvio di HA
+## 🆕 Modalità Locale (EuroNET)
 
-### 🔔 Sistema di Notifiche Avanzato
-- **Notifiche multi-canale**: Supporto per notifiche persistenti e mobile
-- **Eventi monitorati**:
-  - Attivazione/Disattivazione centrale
-  - Allarmi scattati con notifica prioritaria
-  - Errori PIN
-  - Stato connessione WebSocket
-  - Problemi di connessione al cloud
-- **Controllo granulare**: Switch per abilitare/disabilitare le notifiche per singola centrale
-- **Smart notifications**: Evita spam di notifiche con cooldown intelligente
+Nuova modalità che sfrutta il modulo **EuroNET** (codice LINCE 4124EURONET) per una connessione diretta alla centrale via LAN, senza passare dal cloud.
 
-### 🏠 Sensori Zone
-- **Monitoraggio zone**: Stato real-time di tutte le zone (Aperto/Chiuso, Escluso, Sabotaggio)
-- **Tipologie supportate**: Zone filari e radio
-- **Attributi dettagliati**: Tipo zona, stato batteria (per zone radio), memoria allarme
-- **Nomi personalizzati**: Utilizza i nomi configurati nella centrale
+### ✅ Vantaggi
 
-### 📊 Sensori di Sistema
-- **Informazioni centrale**: Modello, versione firmware, stato connessione
-- **Diagnostica**: Tensione batteria, stato alimentazione, temperatura
-- **Contatori eventi**: Numero di allarmi, sabotaggi, anomalie
-- **Stati componenti**: Sirene, espansioni, comunicatori
+| Vantaggio | Descrizione |
+|-----------|-------------|
+| **🔒 100% Locale** | Nessuna dipendenza da server cloud esterni |
+| **⚡ Bassa latenza** | Comunicazione diretta sulla rete locale |
+| **🔐 Privacy** | I dati non escono dalla tua rete |
+| **📡 Polling configurabile** | Da 250ms a 60 secondi |
+| **🔄 Sempre disponibile** | Funziona anche senza connessione internet (serve comunque connettività LAN) |
 
-### 🔄 Coordinator Intelligente
-- **Polling ottimizzato**: Aggiornamento dati ogni 10 secondi
-- **Cache intelligente**: Mantiene i dati durante disconnessioni temporanee
-- **Retry automatico**: Sistema di retry con backoff progressivo
-- **Notifiche di stato**: Informa su problemi di connessione e ripristini
+### 📊 Dati Disponibili
 
-## 📋 Requisiti
+| Categoria | Informazioni |
+|-----------|--------------|
+| **Zone Filari** | Stato (aperto/chiuso), allarme, sabotaggio, esclusione, configurazione |
+| **Zone Radio** | Stato, allarme, sabotaggio, batteria, segnale, supervisione |
+| **Stato Centrale** | Armato/disarmato, programmi attivi, allarme in corso |
+| **Diagnostica** | Temperatura, tensione batteria/bus, stato alimentazione |
+| **Memorie** | Storico allarmi e sabotaggi |
+| **Integrità** | Stato batteria interna/esterna, anomalie |
 
-- Home Assistant 2024.1.0 o superiore
-- Account Lince Cloud attivo
-- Centrale Lince compatibile con il servizio cloud
-- Python 3.11 o superiore
-- [Additional CA Integration](https://github.com/Athozs/hass-additional-ca) (per certificato SSL)
+### 🎛️ Funzionalità
+
+- **Pannello Allarme**: Arma/disarma con associazione programmi (G1, G2, G3, GEXT)
+- **Profili**: Home, Away, Night, Vacation (mappabili liberamente ai programmi)
+- **Notifiche**: Arm/disarm con nome modalità (attivabili/disattivabili per centrale)
+- **Zone come sensori**: Binary sensor per ogni zona configurata
+
+### 📋 Requisiti Modalità Locale
+
+- Centrale **EuroPlus** o **GR868**
+- Modulo **EuroNET** (LINCE 4124EURONET) installato e raggiungibile in LAN
+- Credenziali di accesso al modulo EuroNET
+- Codice installatore della centrale
+
+---
+
+## ☁️ Modalità Cloud
+
+Connessione tramite il servizio **Lince Cloud** con comunicazione WebSocket real-time.
+
+### 🌟 Caratteristiche
+
+#### 🔐 Controllo Allarme
+- Gestione multi-profilo (Home, Away, Night, Vacation, Custom)
+- Attivazione/Disattivazione con PIN utente
+- Stati in tempo reale con feedback ottimistico
+
+#### 📡 WebSocket Real-Time
+- Eventi in tempo reale dalla centrale
+- Auto-riconnessione con backoff esponenziale
+- Re-login automatico alla scadenza token
+- Switch per attivare/disattivare la WebSocket
+
+#### 🔔 Notifiche Avanzate
+- Notifiche persistenti e mobile
+- Allarmi, arm/disarm, errori PIN, stato connessione
+- Controllo granulare per centrale
+
+#### 🏠 Sensori
+- Zone filari e radio con stato real-time
+- Diagnostica: tensione, temperatura, stati componenti
+- Nomi personalizzati dalla centrale
+
+### 📋 Requisiti Modalità Cloud
+
+- Account **Lince Cloud** attivo
+- Centrale compatibile con il servizio cloud
+- Certificato SSL configurato (vedi sotto)
+
+> ⚠️ **IMPORTANTE**: La WebSocket è esclusiva. Quando attiva in HA, l'app Lince Cloud non funzionerà e viceversa.
+
+---
 
 ## 📦 Installazione
 
-### ⚠️ Pre-requisito: Configurazione Certificato SSL
+### Metodo 1: HACS (Raccomandato)
 
-Il servizio Lince Cloud utilizza un certificato SSL self-signed che deve essere installato in Home Assistant per permettere la comunicazione sicura.
+1. **HACS** → **Integrazioni** → **⋮** → **Repository personalizzati**
+2. Aggiungi: `https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant`
+3. Categoria: **Integrazione** → **Aggiungi**
+4. Cerca "**Lince Alarm**" e installa
+5. **Riavvia Home Assistant**
 
-#### Passo 1: Installa Additional CA Integration
-
-1. Installa HACS se non l'hai già fatto (vedi [documentazione HACS](https://hacs.xyz/docs/setup/download))
-2. In HACS, cerca e installa: [Additional CA Integration](https://github.com/Athozs/hass-additional-ca)
-3. Riavvia Home Assistant
-
-#### Passo 2: Configura il certificato
-
-1. Crea una cartella `additional_ca` nella root della configurazione di Home Assistant:
-   ```bash
-   mkdir /config/additional_ca
-   ```
-
-2. Copia il file del certificato `lince_cloud.pem` dal repository nella cartella appena creata:
-   ```bash
-   cp lince_cloud.pem /config/additional_ca/
-   ```
-
-3. Aggiungi la seguente configurazione al tuo `configuration.yaml`:
-   ```yaml
-   additional_ca:
-     lince_cloud: lince_cloud.pem
-   ```
-
-4. Riavvia Home Assistant per applicare le modifiche
-
-### Installazione dell'integrazione
-
-#### Metodo 1: Installazione tramite HACS (Raccomandato)
-
-1. Assicurati che HACS sia installato (vedi [documentazione HACS](https://hacs.xyz/docs/setup/download)).
-2. Vai su HACS > Integrazioni > Menu (⋮) > Repositories personalizzati.
-3. Aggiungi il repository: `https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant`
-4. Imposta la categoria su Integrazione e clicca su Aggiungi.
-5. Cerca "Lince Alarm" in HACS e installalo.
-6. Riavvia Home Assistant.
-7. Vai in **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**.
-8. Cerca **Lince Alarm** e segui la procedura guidata.
-
-#### Metodo 2: Installazione Manuale
-
-1. Scarica l'ultima release da [GitHub Releases](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/releases)
-2. Estrai la cartella `Lince-Alarm-for-Home-Assistant` in `config/custom_components/`
-3. La struttura dovrebbe essere:
-   ```
-   config/
-   ├── custom_components/
-   │   └── Lince-Alarm-for-Home-Assistant/
-   │       ├── __init__.py
-   │       ├── manifest.json
-   │       └── ...
-   └── additional_ca/
-       └── lince_cloud.pem
-   ```
-4. Riavvia Home Assistant
-5. Vai in **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**
-6. Cerca **Lince Alarm** e segui la procedura guidata
-
-#### Metodo 3: Git Clone
+### Metodo 2: Manuale
 
 ```bash
 cd /config/custom_components
 git clone https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.git
-# Copia il certificato
-cp Lince-Alarm-for-Home-Assistant/lince_cloud.pem /config/additional_ca/
 ```
+Riavvia Home Assistant.
+
+---
 
 ## ⚙️ Configurazione
 
-### Prima Configurazione
+### Aggiungi l'Integrazione
 
-1. Vai in **Impostazioni** → **Dispositivi e Servizi**
-2. Clicca su **Aggiungi integrazione**
-3. Cerca **Lince Alarm**
-4. Inserisci le credenziali del tuo account Lince Cloud:
-   - Email
-   - Password
-5. Seleziona le centrali da importare
-6. Configura le opzioni per centrale
+1. **Impostazioni** → **Dispositivi e Servizi** → **Aggiungi integrazione**
+2. Cerca **Lince Alarm**
+3. Scegli la modalità di connessione:
+   - **🏠 Connessione Locale (EuroNET)**
+   - **☁️ Connessione Cloud**
 
-### Opzioni Configurabili
+---
 
-Per ogni centrale puoi configurare:
-- **Numero zone filari**: Imposta il numero di zone cablate (0-35)
-- **Numero zone radio**: Imposta il numero di zone wireless (0-64)
-- **Associazioni programmi al pannello di allarme**: Associa i programmi G1/G2/G3/GEXT alle varie modalità di attivazione del pannello di allarme
+### 🏠 Configurazione Locale (EuroNET)
+
+#### Parametri Connessione
+
+| Campo | Descrizione |
+|-------|-------------|
+| **Host** | Indirizzo IP del modulo EuroNET (es. `192.168.1.100`) |
+| **Porta** | Porta HTTP (default: `80`) |
+| **Nome utente** | Username del modulo EuroNET |
+| **Password** | Password del modulo EuroNET |
+| **Codice installatore** | Codice installatore della centrale |
+
+#### Opzioni (dopo l'aggiunta)
+
+| Opzione | Descrizione |
+|---------|-------------|
+| **Zone filari** | Numero di zone cablate (0-35) |
+| **Zone radio** | Numero di zone wireless (0-64) |
+| **Intervallo polling** | Frequenza aggiornamento (250-60000 ms) |
+| **Profili ARM** | Associazione programmi alle modalità |
+
+#### Esempio Profili ARM
+
+| Modalità | Programmi |
+|----------|-----------|
+| Away (Fuori casa) | G1, G2, G3, GEXT |
+| Home (In casa) | G1 |
+| Night (Notte) | G1, G2 |
+| Vacation (Vacanza) | G1, G2, G3 |
+
+---
+
+### ☁️ Configurazione Cloud
+
+#### Pre-requisito: Certificato SSL
+
+1. Installa **[Additional CA Integration](https://github.com/Athozs/hass-additional-ca)** da HACS
+2. Copia il certificato:
+   ```bash
+   mkdir -p /config/additional_ca
+   cp lince_cloud.pem /config/additional_ca/
+   ```
+3. Aggiungi a `configuration.yaml`:
+   ```yaml
+   additional_ca:
+     lince_cloud: lince_cloud.pem
+   ```
+4. Riavvia Home Assistant
+
+#### Parametri
+
+- **Email**: Email account Lince Cloud
+- **Password**: Password account Lince Cloud
+
+---
 
 ## 🐛 Troubleshooting
 
-### Errore SSL/TLS o connessione rifiutata
-- Verifica di aver installato correttamente il certificato `lince_cloud.pem`
-- Controlla che Additional CA Integration sia installato e configurato
-- Riavvia Home Assistant dopo aver configurato il certificato
+### Modalità Locale (EuroNET)
 
-### La centrale non risponde ai comandi
-- Verifica che il PIN inserito sia corretto
-- Controlla che la WebSocket sia attiva (switch abilitato)
-- Verifica la connessione internet della centrale
-- Controlla i log per eventuali errori di autenticazione
+| Problema | Soluzione |
+|----------|-----------|
+| Connessione rifiutata | Verifica IP e porta del modulo EuroNET |
+| "NoLogin" dopo comando | Credenziali errate o sessione scaduta |
+| Zone non visibili | Configura il numero di zone nelle opzioni |
+| Stato non aggiornato | Verifica intervallo polling |
 
-### Le zone non si aggiornano
-- Controlla il numero di zone configurate nelle opzioni dell'integrazione
-- Verifica che la WebSocket sia connessa (controlla lo switch)
-- Prova a disabilitare e riabilitare la WebSocket
-- Ricarica l'integrazione
+### Modalità Cloud
 
-### Notifiche non ricevute
-- Verifica che lo switch delle notifiche sia abilitato per la centrale
-- Controlla la configurazione del servizio notify in HA
-- Verifica nei log se ci sono errori di invio notifiche
+| Problema | Soluzione |
+|----------|-----------|
+| Errore SSL/TLS | Verifica certificato `lince_cloud.pem` |
+| WebSocket non connette | Chiudi l'app Lince Cloud |
+| Centrale non risponde | Verifica PIN e stato WebSocket |
+
+---
 
 ## 📝 Logging
-
-Per debug dettagliato, aggiungi al `configuration.yaml`:
 
 ```yaml
 logger:
   default: warning
   logs:
-    custom_components.lince_cloud: debug
-    custom_components.lince_cloud.api: debug
-    custom_components.lince_cloud.socket_client: debug
-    custom_components.lince_cloud.coordinator: info
+    custom_components.lince_alarm: debug
+    custom_components.lince_alarm.euronet: debug
+    custom_components.lince_alarm.europlus: debug
+    custom_components.lince_alarm.gold: debug
 ```
 
-## 🔍 Verifica Installazione
-
-Per verificare che tutto sia installato correttamente:
-
-1. **Certificato SSL**: Controlla che il file esista
-   ```bash
-   ls -la /config/additional_ca/lince_cloud.pem
-   ```
-
-2. **Integrazione**: Verifica la presenza dei file
-   ```bash
-   ls -la /config/custom_components/Lince-Alarm-for-Home-Assistant/
-   ```
-
-3. **Log**: Controlla i log per errori
-   ```bash
-   grep -i "lince" /config/home-assistant.log
-   ```
+---
 
 ## 🤝 Contribuire
 
-I contributi sono benvenuti! Per favore:
-
 1. Forka il repository
-2. Crea un branch per la tua feature (`git checkout -b feature/AmazingFeature`)
-3. Committa le modifiche (`git commit -m 'Add some AmazingFeature'`)
-4. Pusha il branch (`git push origin feature/AmazingFeature`)
+2. Crea un branch (`git checkout -b feature/NuovaFeature`)
+3. Committa (`git commit -m 'Aggiungi NuovaFeature'`)
+4. Pusha (`git push origin feature/NuovaFeature`)
 5. Apri una Pull Request
+
+---
 
 ## 📄 Licenza
 
-Questo progetto è rilasciato sotto licenza MIT. Vedi il file [LICENSE](LICENSE) per i dettagli.
+Rilasciato sotto licenza MIT. Vedi [LICENSE](LICENSE).
 
 ## ⚠️ Disclaimer
 
-Questa è un'integrazione **non ufficiale**. Gli autori non sono affiliati con Lince o i suoi partner.
-L'uso di questa integrazione è a proprio rischio e responsabilità.
+Integrazione **non ufficiale**. Non affiliata con Lince.
+Uso a proprio rischio e responsabilità.
 
-Il certificato SSL incluso (`lince_cloud.pem`) è necessario per la comunicazione con i server Lince Cloud ed è fornito solo per scopi di interoperabilità.
+Il certificato SSL (`lince_cloud.pem`) è fornito solo per interoperabilità con Lince Cloud.
 
-## 🙏 Ringraziamenti
-
-- Grazie alla community di Home Assistant
-- Grazie agli sviluppatori di [Additional CA Integration](https://github.com/Athozs/hass-additional-ca)
-- Grazie a tutti i beta tester e contributori
+---
 
 ## 📞 Supporto
 
-Per bug e feature request, apri una [issue su GitHub](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/issues).
-
-Per discussioni e supporto dalla community, partecipa alle [Discussions](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/discussions).
+- **Bug/Feature**: [GitHub Issues](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/issues)
+- **Discussioni**: [GitHub Discussions](https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/discussions)
 
 ---
 

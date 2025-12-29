@@ -1,4 +1,4 @@
-"""Switch platform for LinceCloud integration."""
+"""Switch platform for Lince Alarm integration."""
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback

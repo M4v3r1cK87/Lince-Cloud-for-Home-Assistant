@@ -1,4 +1,4 @@
-"""Binary sensor platform for LinceCloud integration."""
+"""Binary sensor platform for Lince Alarm integration."""
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 import logging

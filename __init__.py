@@ -1,4 +1,4 @@
-"""Integrazione LinceCloud per Home Assistant."""
+"""Integrazione Lince Alarm per Home Assistant."""
 from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
@@ -6,10 +6,12 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN
 from .euronet.const import (
     CONF_LOCAL_MODE, 
-    CONF_HOST, 
+    CONF_HOST,
+    CONF_PORT,
     CONF_PASSWORD,
     CONF_INSTALLER_CODE,
     DEFAULT_LOCAL_USERNAME,
+    DEFAULT_LOCAL_PORT,
 )
 from .factory import ComponentFactory
 import logging
@@ -41,7 +43,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Set up LinceCloud from a config entry."""
+    """Set up Lince Alarm from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN]["notifications_enabled"] = {}
     
@@ -59,6 +61,7 @@ async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntr
     _LOGGER.info("Configurazione modalità LOCALE")
     
     host = config_entry.data[CONF_HOST]
+    port = config_entry.data.get(CONF_PORT, DEFAULT_LOCAL_PORT)
     password = config_entry.data[CONF_PASSWORD]
     installer_code = config_entry.data.get(CONF_INSTALLER_CODE, "")
     
@@ -69,6 +72,7 @@ async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntr
     # Crea client locale (username è sempre "admin")
     client = EuroNetClient(
         host=host,
+        port=port,
         username=DEFAULT_LOCAL_USERNAME,
         password=password,
     )
@@ -93,7 +97,7 @@ async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntr
     hass.data[DOMAIN]["api"] = None  # Non usato in modalità locale
     hass.data[DOMAIN]["primary_brand"] = "lince-europlus"
     
-    _LOGGER.info(f"LinceCloud LOCAL setup completato. Host: {host}")
+    _LOGGER.info(f"Lince Alarm LOCAL setup completato. Host: {host}:{port}")
     
     # Setup delle piattaforme
     await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
@@ -171,7 +175,7 @@ async def _async_setup_cloud_entry(hass: HomeAssistant, config_entry: ConfigEntr
     hass.data[DOMAIN]["api"] = api
     hass.data[DOMAIN]["coordinator"] = coordinator
     
-    _LOGGER.info(f"LinceCloud CLOUD setup completato. Brand primario: {primary_brand}")
+    _LOGGER.info(f"Lince Alarm CLOUD setup completato. Brand primario: {primary_brand}")
 
     # Registra i servizi se non sono già registrati
     if not hass.services.has_service(DOMAIN, "reload"):
@@ -179,7 +183,7 @@ async def _async_setup_cloud_entry(hass: HomeAssistant, config_entry: ConfigEntr
     
     # Servizio reload systems
     async def handle_reload_service(call):
-        _LOGGER.info("Manual reload of LinceCloud systems triggered")
+        _LOGGER.info("Manual reload of Lince Alarm systems triggered")
         await coordinator.async_request_refresh()
 
     hass.services.async_register(
@@ -189,13 +193,13 @@ async def _async_setup_cloud_entry(hass: HomeAssistant, config_entry: ConfigEntr
     # Servizio stop tutte le socket
     async def handle_stop_all_sockets(call):
         """Ferma TUTTE le socket attive."""
-        _LOGGER.info("Richiesta STOP di TUTTE le socket LinceCloud")
+        _LOGGER.info("Richiesta STOP di TUTTE le socket Lince Alarm")
         api = hass.data[DOMAIN].get("api")
         if api and hasattr(api, '_socket_clients'):
             for row_id in list(api._socket_clients.keys()):
                 _LOGGER.info(f"Fermando socket {row_id}")
                 await api.stop_socket_connection(row_id)
-        _LOGGER.info("Tutte le socket LinceCloud sono state fermate")
+        _LOGGER.info("Tutte le socket Lince Alarm sono state fermate")
     
     hass.services.async_register(
         DOMAIN, "stop_all_sockets", handle_stop_all_sockets
@@ -243,31 +247,12 @@ async def _async_setup_cloud_entry(hass: HomeAssistant, config_entry: ConfigEntr
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Scarica l'integrazione e chiudi tutte le socket."""
-    _LOGGER.info("Scaricamento integrazione LinceCloud...")
+    _LOGGER.info("Scaricamento integrazione Lince Alarm...")
     
-    # Se in modalità locale, fai logout dal dispositivo EuroNET
-    local_client = hass.data[DOMAIN].get("local_client")
-    if local_client:
-        try:
-            # Esegui logout in un executor (è sincrono)
-            await hass.async_add_executor_job(local_client.logout, True)
-            _LOGGER.info("Logout EuroNET effettuato durante unload")
-        except Exception as e:
-            _LOGGER.error(f"Errore logout EuroNET durante unload: {e}")
-    
-    # Chiudi tutte le socket prima di scaricare (modalità cloud)
-    api = hass.data[DOMAIN].get("api")
-    if api and hasattr(api, 'close_all_sockets'):
-        try:
-            await api.close_all_sockets()
-            _LOGGER.info("Socket chiuse durante unload")
-        except Exception as e:
-            _LOGGER.error(f"Errore chiusura socket durante unload: {e}")
-    
-    # Cancella i task in background del coordinator
+    # Cancella i task in background del coordinator e fai cleanup
     coordinator = hass.data[DOMAIN].get("coordinator")
     if coordinator:
-        # Per modalità locale, usa async_shutdown se disponibile
+        # Per modalità locale, usa async_shutdown (include logout)
         if hasattr(coordinator, "async_shutdown"):
             try:
                 await coordinator.async_shutdown()
@@ -277,6 +262,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Per modalità cloud, cancella _retry_task se esiste
         elif hasattr(coordinator, "_retry_task") and coordinator._retry_task:
             coordinator._retry_task.cancel()
+    
+    # Chiudi tutte le socket prima di scaricare (modalità cloud)
+    api = hass.data[DOMAIN].get("api")
+    if api and hasattr(api, 'close_all_sockets'):
+        try:
+            await api.close_all_sockets()
+            _LOGGER.info("Socket chiuse durante unload")
+        except Exception as e:
+            _LOGGER.error(f"Errore chiusura socket durante unload: {e}")
     
     # Scarica le piattaforme
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
@@ -317,7 +311,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_reload(call):
         """Gestisce il servizio di reload."""
-        _LOGGER.info("Ricaricamento integrazione LinceCloud richiesto")
+        _LOGGER.info("Ricaricamento integrazione Lince Alarm richiesto")
         for entry in hass.config_entries.async_entries(DOMAIN):
             await hass.config_entries.async_reload(entry.entry_id)
     
