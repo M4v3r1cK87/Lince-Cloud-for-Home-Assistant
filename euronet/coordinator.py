@@ -83,6 +83,11 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self._zone_config_retry_task: Optional[asyncio.Task] = None
         self._zone_config_lock = asyncio.Lock()  # Lock per evitare caricamenti paralleli
         
+        # Stato precedente per rilevare transizioni allarme
+        self._previous_alarm_state = False
+        # Stato precedente ARM per rilevare transizioni arm/disarm (gstate: "G1,G2", etc.)
+        self._previous_gstate: str | None = None
+        
         _LOGGER.info(
             "EuroNET coordinator inizializzato con polling interval: %dms",
             polling_ms
@@ -125,6 +130,221 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self._zone_config_retry_count = 0
         _LOGGER.info("Cache configurazioni zone resettata")
     
+    async def _send_triggered_notification(self, system_data: dict) -> None:
+        """Invia notifica quando scatta l'allarme.
+        
+        Questa notifica è SEMPRE inviata (force=True) indipendentemente
+        dal flag notifiche, in quanto è critica per la sicurezza.
+        
+        Include:
+        - Zone aperte (possibile causa dell'allarme)
+        - Zone in allarme (allarme_24h, memoria_24h, memoria_allarme)
+        - Cause dell'allarme (memorie sabotaggi e integrità)
+        """
+        # Raccogli zone in allarme
+        zone_aperte = []
+        zone_memoria_allarme = []
+        zone_24h = []
+        zone_memoria_24h = []
+        
+        entries = system_data.get("entries", {})
+        _LOGGER.debug("Analisi zone per notifica TRIGGERED: %d entries totali", len(entries))
+        
+        for key, zona in entries.items():
+            if not isinstance(zona, dict):
+                continue
+            
+            # Ottieni nome zona (con fallback)
+            numero = zona.get("numero", "?")
+            nome = zona.get("nome")
+            if not nome:
+                if "filare" in key:
+                    nome = f"Zona Filare {numero}"
+                elif "radio" in key:
+                    nome = f"Zona Radio {numero}"
+                else:
+                    nome = f"Zona {numero}"
+            
+            # Log per debug
+            _LOGGER.debug(
+                "Zona %s: aperta=%s, allarme_24h=%s, memoria_allarme=%s, memoria_24h=%s",
+                nome, zona.get("aperta"), zona.get("allarme_24h"), 
+                zona.get("memoria_allarme"), zona.get("memoria_24h")
+            )
+            
+            # Controlla i flag di allarme
+            if zona.get("aperta", False):
+                zone_aperte.append(nome)
+            if zona.get("allarme_24h", False):
+                zone_24h.append(nome)
+            if zona.get("memoria_24h", False):
+                zone_memoria_24h.append(nome)
+            if zona.get("memoria_allarme", False):
+                zone_memoria_allarme.append(nome)
+        
+        # Log riepilogo zone trovate
+        _LOGGER.debug(
+            "TRIGGERED notifica - Zone aperte: %d, Zone 24h: %d, Zone memoria_24h: %d, Zone memoria_allarme: %d",
+            len(zone_aperte), len(zone_24h), len(zone_memoria_24h), len(zone_memoria_allarme)
+        )
+        if zone_memoria_allarme:
+            _LOGGER.info("Zone in allarme: %s", ", ".join(zone_memoria_allarme))
+        
+        # Raccogli cause allarme dalle memorie centrale
+        cause_allarme = []
+        if system_data.get("memoria_integrita_bus", False):
+            cause_allarme.append("🔌 Memoria integrità bus")
+        if system_data.get("memoria_sabotaggio_centrale", False):
+            cause_allarme.append("🔓 Sabotaggio centrale")
+        if system_data.get("memoria_sabotaggio_dispositivi_bus", False):
+            cause_allarme.append("🔓 Sabotaggio dispositivi bus")
+        if system_data.get("memoria_sabotaggio_ingressi", False):
+            cause_allarme.append("🔓 Sabotaggio ingressi")
+        if system_data.get("allarme_integrita_bus", False):
+            cause_allarme.append("⚠️ Allarme integrità bus")
+        if system_data.get("sabotaggio_centrale", False):
+            cause_allarme.append("🚨 Sabotaggio centrale in corso")
+        if system_data.get("sabotaggio_ingressi", False):
+            cause_allarme.append("🚨 Sabotaggio ingressi in corso")
+        if system_data.get("sabotaggio_dispositivi_bus", False):
+            cause_allarme.append("🚨 Sabotaggio dispositivi bus in corso")
+        
+        # Costruisci messaggio
+        lines = ["🚨 **ALLARME SCATTATO** 🚨\n"]
+        
+        # Zone aperte (possibile causa allarme)
+        if zone_aperte:
+            lines.append("**Zone aperte (possibile causa):**")
+            for z in zone_aperte:
+                lines.append(f"  • {z}")
+            lines.append("")
+        
+        # Zone in allarme attivo (24h)
+        if zone_24h:
+            lines.append("**Zone in allarme 24h:**")
+            for z in zone_24h:
+                lines.append(f"  • {z}")
+            lines.append("")
+        
+        # Zone con memoria allarme
+        if zone_memoria_allarme:
+            lines.append("**Zone con memoria allarme:**")
+            for z in zone_memoria_allarme:
+                lines.append(f"  • {z}")
+            lines.append("")
+        
+        # Zone con memoria 24h
+        if zone_memoria_24h:
+            lines.append("**Zone con memoria 24h:**")
+            for z in zone_memoria_24h:
+                lines.append(f"  • {z}")
+            lines.append("")
+        
+        # Cause allarme
+        if cause_allarme:
+            lines.append("**Cause allarme:**")
+            for c in cause_allarme:
+                lines.append(f"  {c}")
+            lines.append("")
+        
+        # Se non ci sono dettagli specifici
+        if not zone_aperte and not zone_24h and not zone_memoria_allarme and not zone_memoria_24h and not cause_allarme:
+            lines.append("Allarme generico rilevato - verificare centrale")
+        
+        message = "\n".join(lines)
+        
+        # Invia notifica con force=True (ignora flag notifiche)
+        await send_multiple_notifications(
+            self.hass,
+            message=message,
+            title="🚨 ALLARME - Centrale Lince",
+            persistent=True,
+            persistent_id=f"lince_alarm_triggered_{self.client.host}",
+            mobile=True,
+            centrale_id=self.client.host,
+            force=True,  # SEMPRE inviare, ignora flag notifiche
+            data={
+                "tag": "lince_alarm_triggered",
+                "importance": "max",
+                "priority": "high",
+                "channel": "alarm_critical",
+                "ttl": 0,
+                "vibrationPattern": "100, 200, 100, 200, 100, 200, 100, 200",
+                "ledColor": "red",
+                "actions": [
+                    {"action": "URI", "title": "Apri Home Assistant", "uri": "/lovelace"}
+                ]
+            }
+        )
+        _LOGGER.warning("Notifica ALLARME SCATTATO inviata per %s", self.client.host)
+    
+    def _get_mode_name_from_gstate(self, gstate: str) -> str:
+        """Determina il nome del modo dai programmi attivi."""
+        if not gstate:
+            return "Disarmato"
+        
+        # Ottieni i profili configurati
+        arm_profiles = self.arm_profiles
+        active_set = set(p.strip() for p in gstate.split(",") if p.strip())
+        
+        # Cerca corrispondenza con i profili configurati
+        mode_names = {
+            "away": "Armato Totale",
+            "home": "Armato Casa",
+            "night": "Armato Notte",
+            "vacation": "Armato Vacanza",
+        }
+        
+        for mode, name in mode_names.items():
+            configured = arm_profiles.get(mode, [])
+            if configured:
+                configured_set = set(p.upper() for p in configured)
+                if configured_set == active_set:
+                    return name
+        
+        # Fallback: mostra programmi attivi
+        if active_set:
+            return f"Armato ({gstate})"
+        return "Disarmato"
+    
+    async def _send_arm_disarm_notification(self, prev_gstate: str, curr_gstate: str, system_data: dict) -> None:
+        """Invia notifica per cambio stato ARM/DISARM.
+        
+        Questa notifica rispetta il flag notifiche (force=False).
+        """
+        prev_mode = self._get_mode_name_from_gstate(prev_gstate)
+        curr_mode = self._get_mode_name_from_gstate(curr_gstate)
+        
+        # Determina se è un ARM o DISARM
+        if not curr_gstate:
+            # DISARM
+            icon = "🔓"
+            title = "Allarme Disarmato"
+            message = f"{icon} Centrale disarmata\n\nStato precedente: {prev_mode}"
+        else:
+            # ARM
+            icon = "🔒"
+            title = "Allarme Armato"
+            if prev_gstate:
+                # Cambio da un modo armato a un altro
+                message = f"{icon} Centrale armata: **{curr_mode}**\n\nStato precedente: {prev_mode}"
+            else:
+                # Passaggio da disarmato a armato
+                message = f"{icon} Centrale armata: **{curr_mode}**"
+        
+        _LOGGER.info("Cambio stato allarme: %s -> %s", prev_mode, curr_mode)
+        
+        # Invia notifica (rispetta flag notifiche)
+        await send_multiple_notifications(
+            self.hass,
+            message=message,
+            title=f"{icon} {title} - Centrale Lince",
+            persistent=False,
+            mobile=True,
+            centrale_id=self.client.host,
+            force=False,  # Rispetta il flag notifiche
+        )
+
     async def _schedule_zone_config_retry(self) -> None:
         """Programma un retry per il caricamento delle zone mancanti."""
         if self._zone_config_retry_count >= ZONE_CONFIG_MAX_RETRIES:
@@ -408,9 +628,40 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 self.client.get_stato_zone_filari
             )
             
+            # Leggi zone radio (tutti i gruppi necessari)
+            zone_radio = []
+            if self.num_zone_radio > 0:
+                # Calcola quanti gruppi leggere (10 zone per gruppo)
+                num_gruppi = (self.num_zone_radio + 9) // 10  # arrotonda per eccesso
+                for gruppo in range(num_gruppi):
+                    zone_gruppo = await self.hass.async_add_executor_job(
+                        self.client.get_stato_zone_radio, gruppo
+                    )
+                    zone_radio.extend(zone_gruppo)
+            
             # Costruisci struttura dati compatibile con l'integrazione esistente
             # Simuliamo un "sistema" cloud-like per compatibilità
-            system_data = self._build_system_data(stato, zone_filari)
+            system_data = self._build_system_data(stato, zone_filari, zone_radio)
+            
+            # Rileva transizione a stato ALLARME e invia notifica
+            current_alarm_state = system_data.get("allarme", False)
+            if current_alarm_state and not self._previous_alarm_state:
+                # Transizione da non-allarme a allarme -> TRIGGERED!
+                _LOGGER.warning("Rilevato allarme scattato! Invio notifica...")
+                # Schedula invio notifica (non bloccare l'update)
+                self.hass.async_create_task(
+                    self._send_triggered_notification(system_data)
+                )
+            self._previous_alarm_state = current_alarm_state
+            
+            # Rileva transizione ARM/DISARM (indipendentemente dalla fonte)
+            current_gstate = system_data.get("gstate", "")
+            if self._previous_gstate is not None and current_gstate != self._previous_gstate:
+                # Lo stato è cambiato - invia notifica appropriata
+                self.hass.async_create_task(
+                    self._send_arm_disarm_notification(self._previous_gstate, current_gstate, system_data)
+                )
+            self._previous_gstate = current_gstate
             
             self._systems = [system_data]
             
@@ -425,10 +676,13 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             _LOGGER.error(f"Errore aggiornamento dati locali: {e}")
             raise UpdateFailed(f"Errore comunicazione: {e}")
     
-    def _build_system_data(self, stato: StatoCentrale, zone_filari: list) -> dict:
+    def _build_system_data(self, stato: StatoCentrale, zone_filari: list, zone_radio: list | None = None) -> dict:
         """Costruisce struttura dati sistema compatibile con cloud."""
         # Mappiamo lo stato locale a una struttura simile a quella cloud
         # per minimizzare le modifiche alle entità esistenti
+        
+        if zone_radio is None:
+            zone_radio = []
         
         # Determina lo stato generale
         gstate = []
@@ -501,31 +755,43 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             
             entries[entry_key] = entry_data
         
-        # Aggiungi zone radio (se configurate)
-        # Per ora usiamo solo i dati di configurazione, lo stato runtime
-        # verrà aggiunto quando il client supporterà la lettura dello stato radio
-        if self._zone_configs and num_radio > 0:
-            for numero, zone_config in self._zone_configs.zone_radio.items():
-                if numero > num_radio:
-                    continue
-                    
+        # Costruisci mappa zone radio per lookup veloce (numero -> StatoZonaRadio)
+        zone_radio_map = {z.numero: z for z in zone_radio}
+        
+        # Aggiungi zone radio (se configurate) con stato runtime reale
+        if num_radio > 0:
+            for numero in range(1, num_radio + 1):
                 entry_key = f"zona_radio_{numero}"
                 
-                # Usa il nome solo se è configurato (non "Non Disponibile")
-                nome = zone_config.nome if zone_config.is_configured else None
+                # Recupera stato runtime dalla mappa
+                stato_zona = zone_radio_map.get(numero)
+                
+                # Recupera configurazione dalla cache (se disponibile)
+                zone_config = None
+                nome = None
+                if self._zone_configs and numero in self._zone_configs.zone_radio:
+                    zone_config = self._zone_configs.zone_radio[numero]
+                    # Usa il nome solo se è configurato (non "Non Disponibile")
+                    if zone_config.is_configured:
+                        nome = zone_config.nome
                 
                 entry_data = {
                     "numero": numero,
                     "nome": nome,
                     "tipo": "radio",
-                    # Stato runtime placeholder (sarà aggiornato quando supportato)
-                    "aperta": False,
-                    "esclusa": zone_config.escluso,
-                    "allarme_24h": False,
-                    "memoria_24h": False,
-                    "memoria_allarme": False,
-                    # Configurazione
-                    "config": {
+                    # Stato runtime reale dal client
+                    "aperta": stato_zona.aperta if stato_zona else False,
+                    "esclusa": zone_config.escluso if zone_config else False,
+                    "allarme_24h": stato_zona.allarme_24h if stato_zona else False,
+                    "memoria_24h": stato_zona.memoria_24h if stato_zona else False,
+                    "memoria_allarme": stato_zona.memoria_allarme if stato_zona else False,
+                    "supervisione": stato_zona.supervisione if stato_zona else False,
+                    "batteria_scarica": stato_zona.batteria_scarica if stato_zona else False,
+                }
+                
+                # Aggiungi configurazione se disponibile
+                if zone_config:
+                    entry_data["config"] = {
                         "supervisionato": zone_config.supervisionato,
                         "escluso": zone_config.escluso,
                         "associazioni_filari": zone_config.associazioni_filari,
@@ -534,8 +800,8 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                         "associazione_28_33": zone_config.associazione_28_33,
                         "associazione_29_34": zone_config.associazione_29_34,
                         "associazione_30_35": zone_config.associazione_30_35,
-                    },
-                }
+                    }
+                    
                 entries[entry_key] = entry_data
         
         return {
