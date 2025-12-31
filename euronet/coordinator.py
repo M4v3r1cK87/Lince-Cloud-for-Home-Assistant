@@ -88,7 +88,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         # Stato precedente ARM per rilevare transizioni arm/disarm (gstate: "G1,G2", etc.)
         self._previous_gstate: str | None = None
         
-        _LOGGER.info(
+        _LOGGER.debug(
             "EuroNET coordinator inizializzato con polling interval: %dms",
             polling_ms
         )
@@ -128,7 +128,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self._zone_configs_loaded = False
         self._zone_configs_complete = False
         self._zone_config_retry_count = 0
-        _LOGGER.info("Cache configurazioni zone resettata")
+        _LOGGER.debug("Cache configurazioni zone resettata")
     
     async def _send_triggered_notification(self, system_data: dict) -> None:
         """Invia notifica quando scatta l'allarme.
@@ -188,7 +188,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             len(zone_aperte), len(zone_24h), len(zone_memoria_24h), len(zone_memoria_allarme)
         )
         if zone_memoria_allarme:
-            _LOGGER.info("Zone in allarme: %s", ", ".join(zone_memoria_allarme))
+            _LOGGER.debug("Zone in allarme: %s", ", ".join(zone_memoria_allarme))
         
         # Raccogli cause allarme dalle memorie centrale
         cause_allarme = []
@@ -332,7 +332,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 # Passaggio da disarmato a armato
                 message = f"{icon} Centrale armata: **{curr_mode}**"
         
-        _LOGGER.info("Cambio stato allarme: %s -> %s", prev_mode, curr_mode)
+        _LOGGER.debug("Cambio stato allarme: %s -> %s", prev_mode, curr_mode)
         
         # Invia notifica (rispetta flag notifiche)
         await send_multiple_notifications(
@@ -356,7 +356,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             return
         
         self._zone_config_retry_count += 1
-        _LOGGER.info(
+        _LOGGER.debug(
             "Programmato retry automatico caricamento zone tra %d secondi (tentativo %d/%d)",
             ZONE_CONFIG_RETRY_DELAY,
             self._zone_config_retry_count,
@@ -382,7 +382,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             
             # Se abbiamo caricato nuove zone, forza un reload dell'integrazione
             if new_filari > prev_filari or new_radio > prev_radio:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Caricate nuove zone (filari: %d->%d, radio: %d->%d). "
                     "Ricarico l'integrazione per creare le nuove entità...",
                     prev_filari, new_filari, prev_radio, new_radio
@@ -396,7 +396,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 num_filari = self.num_zone_filari
                 num_radio = self.num_zone_radio
                 if (new_filari < num_filari or new_radio < num_radio) and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
-                    _LOGGER.info("Retry non ha caricato nuove zone, ne programmo un altro")
+                    _LOGGER.debug("Retry non ha caricato nuove zone, ne programmo un altro")
                     self._zone_config_retry_task = asyncio.create_task(
                         self._schedule_zone_config_retry()
                     )
@@ -421,7 +421,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             num_radio = self.num_zone_radio
             
             if num_filari == 0 and num_radio == 0:
-                _LOGGER.info("Nessuna zona configurata - salta caricamento configurazioni")
+                _LOGGER.debug("Nessuna zona configurata - salta caricamento configurazioni")
                 self._zone_configs_loaded = True
                 return
             
@@ -434,7 +434,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             installer_code = options.get(CONF_INSTALLER_CODE) or data.get(CONF_INSTALLER_CODE, "")
             
             if not installer_code:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Codice installatore non configurato - "
                     "i dettagli di configurazione delle zone non saranno disponibili"
                 )
@@ -450,7 +450,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 return
                 
             try:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Caricamento configurazione zone: %d filari, %d radio",
                     num_filari, num_radio
                 )
@@ -472,7 +472,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 # Debug: log stato prima del merge
                 prev_count = len(self._zone_configs.zone_filari) if self._zone_configs else 0
                 new_count = len(new_configs.zone_filari) if new_configs else 0
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Merge zone: precedenti=%d, nuove=%d, self._zone_configs=%s, new_configs=%s",
                     prev_count, new_count, 
                     bool(self._zone_configs), bool(new_configs)
@@ -481,7 +481,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 # Merge con le configurazioni esistenti (per retry)
                 if self._zone_configs and new_configs:
                     # Unisci le zone: le nuove si aggiungono/sovrascrivono le vecchie
-                    _LOGGER.info("Merge: zone esistenti=%s, nuove=%s", 
+                    _LOGGER.debug("Merge: zone esistenti=%s, nuove=%s", 
                         list(self._zone_configs.zone_filari.keys()),
                         list(new_configs.zone_filari.keys())
                     )
@@ -490,9 +490,9 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                     for zona_num, zona_config in new_configs.zone_radio.items():
                         self._zone_configs.zone_radio[zona_num] = zona_config
                     self._zone_configs.timestamp = new_configs.timestamp
-                    _LOGGER.info("Dopo merge: zone=%s", list(self._zone_configs.zone_filari.keys()))
+                    _LOGGER.debug("Dopo merge: zone=%s", list(self._zone_configs.zone_filari.keys()))
                 elif new_configs:
-                    _LOGGER.info("No merge: self._zone_configs è None/vuoto, uso new_configs")
+                    _LOGGER.debug("No merge: self._zone_configs è None/vuoto, uso new_configs")
                     self._zone_configs = new_configs
                 else:
                     _LOGGER.warning("No merge: new_configs è None/vuoto")
@@ -504,7 +504,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                     configured_filari = len(self._zone_configs.zone_filari_configurate)
                     configured_radio = len(self._zone_configs.zone_radio_configurate)
                     
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "Configurazioni zone caricate: %d/%d filari (%d configurate), "
                         "%d/%d radio (%d configurate)",
                         loaded_filari, num_filari, configured_filari,
@@ -514,7 +514,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                     # Verifica se tutte le zone attese sono state caricate
                     if loaded_filari >= num_filari and loaded_radio >= num_radio:
                         self._zone_configs_complete = True
-                        _LOGGER.info("Caricamento zone completato con successo")
+                        _LOGGER.debug("Caricamento zone completato con successo")
                     else:
                         self._zone_configs_complete = False
                         missing_filari = num_filari - loaded_filari
@@ -574,7 +574,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             if success:
                 self._session_valid = True
                 self._login_retry_count = 0
-                _LOGGER.info("Sessione web EuroNET stabilita")
+                _LOGGER.debug("Sessione web EuroNET stabilita")
                 return True
             else:
                 self._login_retry_count += 1
@@ -967,7 +967,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
 
     async def async_shutdown(self) -> None:
         """Cancella task in background, ferma il polling e pulisce le risorse."""
-        _LOGGER.info("Shutdown EuroNET coordinator...")
+        _LOGGER.debug("Shutdown EuroNET coordinator...")
         
         # Ferma gli aggiornamenti periodici
         self.update_interval = None
@@ -985,8 +985,8 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         # Esegui logout dal client
         try:
             await self.hass.async_add_executor_job(self.client.logout, True)
-            _LOGGER.info("Logout EuroNET eseguito durante shutdown coordinator")
+            _LOGGER.debug("Logout EuroNET eseguito durante shutdown coordinator")
         except Exception as e:
             _LOGGER.debug(f"Errore logout durante shutdown (ignorato): {e}")
         
-        _LOGGER.info("EuroNET coordinator shutdown completato")
+        _LOGGER.debug("EuroNET coordinator shutdown completato")

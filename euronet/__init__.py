@@ -24,6 +24,7 @@ from .sensor import setup_euronet_sensors
 from .binary_sensor import setup_euronet_binary_sensors
 from .alarm_control_panel import setup_euronet_alarm_panels
 from .switch import setup_euronet_switches
+from .button import setup_euronet_buttons
 
 __all__ = [
     "EuroNetClient",
@@ -45,4 +46,5 @@ __all__ = [
     "setup_euronet_binary_sensors",
     "setup_euronet_alarm_panels",
     "setup_euronet_switches",
+    "setup_euronet_buttons",
 ]

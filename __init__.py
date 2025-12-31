@@ -20,7 +20,7 @@ import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
 
-platforms = ["sensor", "switch", "binary_sensor", "alarm_control_panel"]
+platforms = ["sensor", "switch", "binary_sensor", "alarm_control_panel", "button"]
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:

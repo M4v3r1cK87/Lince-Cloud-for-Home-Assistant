@@ -33,7 +33,7 @@ SENSOR_MAPPING = {
         "icon": "mdi:current-dc",
     },
     "release_sw": {
-        "friendly_name": "Versione Firmware",
+        "friendly_name": "Firmware Centrale",
         "icon": "mdi:chip",
     },
 }

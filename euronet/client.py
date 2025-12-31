@@ -382,6 +382,7 @@ class EuroNetClient:
         "login": "login.html",
         "logout": "logout.html",
         "index": "index.htm",
+        "reboot": "protect/reboot.cgi",
         "zone_filari_config": "ingresso-filari.html",
         "zone_radio_config": "ingresso-radio.html",
         "tempi_config": "tempi.html",
@@ -583,7 +584,7 @@ class EuroNetClient:
             # Verifica se siamo loggati
             status = self.get_stato_centrale()
             if status and not status.logout:
-                _LOGGER.info("Login riuscito")
+                _LOGGER.debug("Login riuscito")
                 return True
                 
         _LOGGER.error("Login fallito")
@@ -652,7 +653,7 @@ class EuroNetClient:
         self.logout()
         
         if response:
-            _LOGGER.info(f"Armati programmi: {programmi}")
+            _LOGGER.debug(f"Armati programmi: {programmi}")
             return True
         return False
         
@@ -679,9 +680,28 @@ class EuroNetClient:
         self.logout()
         
         if response:
-            _LOGGER.info("Disarmato")
+            _LOGGER.debug("Disarmato")
             return True
         return False
+    
+    def reboot(self) -> bool:
+        """
+        Riavvia il modulo EuroNET.
+        
+        Chiama direttamente il CGI di reboot che riavvia il modulo.
+        Il modulo sarà non disponibile per alcuni secondi durante il riavvio.
+        
+        Returns:
+            True se comando inviato con successo
+        """
+        try:
+            # Chiama direttamente il CGI di reboot
+            response = self._get(self.ENDPOINTS["reboot"])
+            _LOGGER.warning("Comando reboot EuroNET inviato")
+            return True
+        except Exception as e:
+            _LOGGER.error(f"Errore durante reboot EuroNET: {e}")
+            return False
         
     # ========================================================================
     # STATO CENTRALE
