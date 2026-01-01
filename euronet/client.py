@@ -520,8 +520,15 @@ class EuroNetClient:
                 
             match = re.search(r'arr\s*=\s*"([\d,]+)"', html)
             if not match:
-                _LOGGER.error("Chiavi XOR non trovate in index.htm")
-                return None
+                # Log del contenuto per debug
+                _LOGGER.warning(
+                    "Chiavi XOR non trovate in index.htm (tentativo %d/%d). "
+                    "Contenuto (primi 500 char): %s",
+                    attempt + 1, max_retries, html[:500] if html else "VUOTO"
+                )
+                if attempt < max_retries - 1:
+                    time.sleep(0.3)
+                continue
                 
             keys_str = match.group(1)
             keys = [int(k) for k in keys_str.strip(',').split(',') if k]
@@ -530,12 +537,11 @@ class EuroNetClient:
                 return keys[:16]
             
             # Chiavi insufficienti - riprova
+            _LOGGER.debug("Chiavi XOR insufficienti: %d (serve 16)", len(keys))
             if attempt < max_retries - 1:
-                _LOGGER.debug(f"Solo {len(keys)} chiavi trovate, riprovo ({attempt + 1}/{max_retries})")
                 time.sleep(0.3)
-            else:
-                _LOGGER.warning(f"Solo {len(keys)} chiavi trovate dopo {max_retries} tentativi")
         
+        _LOGGER.error("Impossibile ottenere chiavi XOR dopo %d tentativi", max_retries)
         return None
         
     def _encode_password(self, code: str, keys: List[int]) -> str:
@@ -575,6 +581,7 @@ class EuroNetClient:
         """
         keys = self._get_dynamic_keys()
         if not keys:
+            _LOGGER.error("Login fallito: impossibile ottenere chiavi XOR")
             return False
             
         encoded = self._encode_password(code, keys)
@@ -586,8 +593,16 @@ class EuroNetClient:
             if status and not status.logout:
                 _LOGGER.debug("Login riuscito")
                 return True
-                
-        _LOGGER.error("Login fallito")
+            else:
+                _LOGGER.error(
+                    "Login fallito: POST OK ma stato non valido. "
+                    "status=%s, logout=%s",
+                    status is not None, status.logout if status else "N/A"
+                )
+        else:
+            _LOGGER.error(
+                "Login fallito: POST login ritorna None (possibile redirect o errore HTTP)"
+            )
         return False
         
     def logout(self, force: bool = True) -> bool:

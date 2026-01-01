@@ -58,7 +58,7 @@ def setup_euronet_sensors(coordinator, config_entry: ConfigEntry, hass):
         entities.append(entity)
         _LOGGER.debug(f"Creato sensore locale: {data_key}")
     
-    _LOGGER.info(f"Creati {len(entities)} sensori per EuroNET")
+    _LOGGER.debug(f"Creati {len(entities)} sensori per EuroNET")
     return entities
 
 

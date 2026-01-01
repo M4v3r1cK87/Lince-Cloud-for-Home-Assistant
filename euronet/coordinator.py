@@ -74,6 +74,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self._session_valid = False
         self._login_retry_count = 0
         self._max_login_retries = 3
+        self._login_cooldown_until: float = 0  # Timestamp fino a cui attendere prima di riprovare
         
         # Cache configurazione zone (caricata una volta all'init)
         self._zone_configs: Optional[ZoneConfigs] = None
@@ -519,7 +520,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                         self._zone_configs_complete = False
                         missing_filari = num_filari - loaded_filari
                         missing_radio = num_radio - loaded_radio
-                        _LOGGER.warning(
+                        _LOGGER.debug(
                             "Caricamento zone incompleto: mancano %d filari e %d radio",
                             max(0, missing_filari), max(0, missing_radio)
                         )
@@ -552,20 +553,40 @@ class EuroNetCoordinator(DataUpdateCoordinator):
     async def _ensure_session(self) -> bool:
         """Assicura che la sessione web sia valida, effettuando login se necessario.
         
+        Implementa un cooldown esponenziale per evitare troppi tentativi ravvicinati
+        che potrebbero sovraccaricare la centrale.
+        
         Returns:
             True se la sessione è valida, False se il login fallisce
         """
+        import time
+        
         if self._session_valid:
             return True
+        
+        # Controlla cooldown - se siamo in cooldown, non riprovare
+        now = time.time()
+        if now < self._login_cooldown_until:
+            return False
+        
+        # Se abbiamo superato il limite di retry, imposta cooldown lungo (5 minuti)
+        if self._login_retry_count >= self._max_login_retries:
+            # Dopo 3 tentativi falliti, attendi 5 minuti prima di riprovare
+            self._login_cooldown_until = now + 300  # 5 minuti
+            # Logga solo una volta quando si entra in cooldown
+            if self._login_retry_count == self._max_login_retries:
+                _LOGGER.warning(
+                    "Login EuroNET fallito dopo %d tentativi. Prossimo tentativo tra 5 minuti.",
+                    self._max_login_retries
+                )
+                self._login_retry_count += 1  # Incrementa per non loggare di nuovo
+            return False
         
         # Ottieni il codice installatore per il login
         installer_code = getattr(self.client, 'installer_code', None)
         if not installer_code:
-            _LOGGER.warning("Codice installatore non configurato - alcune funzionalità potrebbero non essere disponibili")
             # Prova comunque a leggere lo stato senza login (potrebbe funzionare per dati base)
             return True
-        
-        _LOGGER.debug("Tentativo login sessione web EuroNET...")
         
         try:
             success = await self.hass.async_add_executor_job(
@@ -574,30 +595,49 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             if success:
                 self._session_valid = True
                 self._login_retry_count = 0
-                _LOGGER.debug("Sessione web EuroNET stabilita")
+                self._login_cooldown_until = 0
                 return True
             else:
                 self._login_retry_count += 1
-                _LOGGER.warning(
-                    "Login EuroNET fallito (tentativo %d/%d)",
-                    self._login_retry_count, self._max_login_retries
-                )
+                # Cooldown progressivo: 5s, 15s, 30s
+                cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 30)
+                self._login_cooldown_until = now + cooldown
                 return False
         except Exception as e:
             self._login_retry_count += 1
-            _LOGGER.error("Errore durante login EuroNET: %s", e)
+            cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 30)
+            self._login_cooldown_until = now + cooldown
+            _LOGGER.debug("Errore login EuroNET: %s", e)
             return False
     
     def invalidate_session(self) -> None:
-        """Invalida la sessione corrente, forzando un re-login al prossimo update."""
+        """Invalida la sessione corrente, forzando un re-login al prossimo update.
+        
+        Non resetta il contatore retry per evitare loop infiniti.
+        """
+        import time
+        # Non invalidare se siamo in cooldown (evita loop)
+        if time.time() < self._login_cooldown_until:
+            return
         self._session_valid = False
-        _LOGGER.debug("Sessione EuroNET invalidata")
 
     async def _async_update_data(self) -> list[dict[str, Any]]:
         """Fetch data dalla centrale locale."""
+        import time
+        
+        # Se siamo in cooldown login, restituisci dati cached o errore silenzioso
+        if time.time() < self._login_cooldown_until:
+            if self._systems:
+                return self._systems  # Restituisci dati cached
+            raise UpdateFailed("Login in cooldown - attendere")
+        
         try:
             # Assicura che la sessione sia valida
-            await self._ensure_session()
+            if not await self._ensure_session():
+                # Login fallito, restituisci dati cached se disponibili
+                if self._systems:
+                    return self._systems
+                raise UpdateFailed("Sessione non valida")
             
             # Al primo update, carica le configurazioni delle zone
             if not self._zone_configs_loaded:
@@ -609,9 +649,8 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             )
             
             if not stato:
-                # Sessione potrebbe essere scaduta - invalida e riprova
+                # Sessione potrebbe essere scaduta - invalida e riprova UNA volta
                 if self._session_valid:
-                    _LOGGER.debug("Stato centrale non disponibile - possibile sessione scaduta")
                     self.invalidate_session()
                     # Tenta un re-login
                     if await self._ensure_session():

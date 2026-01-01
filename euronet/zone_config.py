@@ -287,18 +287,16 @@ class ZoneConfigFetcher:
                 html = await response.text(encoding='latin-1')
                 match = re.search(r'arr\s*=\s*"([\d,]+)"', html)
                 if not match:
-                    _LOGGER.error("XOR keys not found in index.htm")
                     return None
                 
                 keys = [int(k) for k in match.group(1).strip(',').split(',') if k]
                 if len(keys) < 16:
-                    _LOGGER.error("Not enough XOR keys: %d", len(keys))
                     return None
                 
                 return keys[:16]
                 
         except Exception as e:
-            _LOGGER.error("Error extracting XOR keys: %s", e)
+            _LOGGER.debug("Error extracting XOR keys: %s", e)
             return None
     
     async def _login_installer(self, session: aiohttp.ClientSession) -> bool:
@@ -676,12 +674,12 @@ class ZoneConfigFetcher:
         
         # Log final results
         if pending_filari or pending_radio:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Could not fetch all zones after %d attempts. Missing: %d wired, %d radio",
                 max_retries + 1, len(pending_filari), len(pending_radio)
             )
         
-        _LOGGER.info(
+        _LOGGER.debug(
             "Fetched %d wired zones (%d configured) and %d radio zones (%d configured)",
             len(configs.zone_filari),
             len(configs.zone_filari_configurate),

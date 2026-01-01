@@ -121,14 +121,14 @@ class EuroNetNotificationsSwitch(SwitchEntity, RestoreEntity):
         self._is_on = True
         self._update_hass_data()
         self.async_write_ha_state()
-        _LOGGER.info(f"Notifiche abilitate per {self._host}")
+        _LOGGER.debug(f"Notifiche abilitate per {self._host}")
     
     async def async_turn_off(self, **kwargs) -> None:
         """Disabilita le notifiche."""
         self._is_on = False
         self._update_hass_data()
         self.async_write_ha_state()
-        _LOGGER.info(f"Notifiche disabilitate per {self._host}")
+        _LOGGER.debug(f"Notifiche disabilitate per {self._host}")
 
 
 # ============================================================================
@@ -203,7 +203,7 @@ class EuroNetSabotageNotificationsSwitch(SwitchEntity, RestoreEntity):
             self._async_check_sabotage,
             SABOTAGE_CHECK_INTERVAL
         )
-        _LOGGER.info(f"Monitoraggio sabotaggi attivato per {self._host} (ogni 10 min)")
+        _LOGGER.debug(f"Monitoraggio sabotaggi attivato per {self._host} (ogni 10 min)")
         
         # Esegui controllo immediato con delay per attendere dati coordinator
         async def delayed_check():
@@ -213,7 +213,6 @@ class EuroNetSabotageNotificationsSwitch(SwitchEntity, RestoreEntity):
                     await self._async_check_sabotage(None)
                     return
                 await asyncio.sleep(1)
-            _LOGGER.warning(f"Controllo sabotaggi iniziale saltato - dati non disponibili")
         
         self._hass.async_create_task(delayed_check())
     
@@ -222,7 +221,7 @@ class EuroNetSabotageNotificationsSwitch(SwitchEntity, RestoreEntity):
         if self._unsubscribe_timer is not None:
             self._unsubscribe_timer()
             self._unsubscribe_timer = None
-            _LOGGER.info(f"Monitoraggio sabotaggi disattivato per {self._host}")
+            _LOGGER.debug(f"Monitoraggio sabotaggi disattivato per {self._host}")
     
     async def _async_check_sabotage(self, now) -> None:
         """Verifica stato sabotaggi e invia notifica se necessario."""
@@ -359,11 +358,11 @@ class EuroNetSabotageNotificationsSwitch(SwitchEntity, RestoreEntity):
         self._is_on = True
         self._start_periodic_check()
         self.async_write_ha_state()
-        _LOGGER.info(f"Monitoraggio sabotaggi abilitato per {self._host}")
+        _LOGGER.debug(f"Monitoraggio sabotaggi abilitato per {self._host}")
     
     async def async_turn_off(self, **kwargs) -> None:
         """Disabilita il monitoraggio sabotaggi."""
         self._is_on = False
         self._stop_periodic_check()
         self.async_write_ha_state()
-        _LOGGER.info(f"Monitoraggio sabotaggi disabilitato per {self._host}")
+        _LOGGER.debug(f"Monitoraggio sabotaggi disabilitato per {self._host}")
