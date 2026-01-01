@@ -116,6 +116,10 @@ class EuroNetSensor(CoordinatorEntity, SensorEntity):
         # Unit of measurement
         self._attr_native_unit_of_measurement = mapping.get("unit_of_measurement")
         
+        # Suggested display precision (per sensori numerici)
+        if "suggested_display_precision" in mapping:
+            self._attr_suggested_display_precision = mapping["suggested_display_precision"]
+        
         # Device info comune per raggruppare le entità
         sw_version = "N/A"
         if coordinator.data and len(coordinator.data) > 0:

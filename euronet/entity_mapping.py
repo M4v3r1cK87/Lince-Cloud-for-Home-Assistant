@@ -17,6 +17,7 @@ SENSOR_MAPPING = {
         "state_class": "measurement",
         "unit_of_measurement": "°C",
         "icon": "mdi:thermometer",
+        "suggested_display_precision": 1,
     },
     "tensione_batteria_v": {
         "friendly_name": "Tensione Batteria",
@@ -24,6 +25,7 @@ SENSOR_MAPPING = {
         "state_class": "measurement",
         "unit_of_measurement": "V",
         "icon": "mdi:current-dc",
+        "suggested_display_precision": 2,
     },
     "tensione_bus_v": {
         "friendly_name": "Tensione BUS",
@@ -31,6 +33,7 @@ SENSOR_MAPPING = {
         "state_class": "measurement",
         "unit_of_measurement": "V",
         "icon": "mdi:current-dc",
+        "suggested_display_precision": 2,
     },
     "release_sw": {
         "friendly_name": "Firmware Centrale",
