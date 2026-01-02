@@ -120,14 +120,19 @@ class EuroNetSensor(CoordinatorEntity, SensorEntity):
         if "suggested_display_precision" in mapping:
             self._attr_suggested_display_precision = mapping["suggested_display_precision"]
         
-        # Device info comune per raggruppare le entità
+        # Host per device_info
+        self._host = coordinator.client.host
+
+    @property
+    def device_info(self):
+        """Device info dinamico per aggiornare sw_version."""
         sw_version = "N/A"
-        if coordinator.data and len(coordinator.data) > 0:
-            sw_version = str(coordinator.data[0].get("release_sw", "N/A"))
+        if self.coordinator.data and len(self.coordinator.data) > 0:
+            sw_version = str(self.coordinator.data[0].get("release_sw", "N/A"))
             
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"euronet_{host}")},
-            "name": f"EuroNET ({host})",
+        return {
+            "identifiers": {(DOMAIN, f"euronet_{self._host}")},
+            "name": f"EuroNET ({self._host})",
             "manufacturer": MANUFACTURER,
             "model": "4124EURONET",
             "sw_version": sw_version,

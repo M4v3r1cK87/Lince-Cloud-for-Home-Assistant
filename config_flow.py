@@ -762,9 +762,13 @@ class LinceGoldCloudOptionsFlow(OptionsFlowWithReload):
                 
                 current_data = dict(self._entry.data)
                 data_changed = False
+                password_changed = False
                 installer_code_changed = False
                 
                 if new_password:
+                    old_password = self._entry.data.get(CONF_PASSWORD, "")
+                    if new_password != old_password:
+                        password_changed = True
                     current_data[CONF_PASSWORD] = new_password
                     data_changed = True
                 
@@ -782,10 +786,14 @@ class LinceGoldCloudOptionsFlow(OptionsFlowWithReload):
                         self._entry, data=current_data
                     )
                 
-                # Se il codice installatore è cambiato, forza reload dell'integrazione
-                # per ricaricare le configurazioni delle zone
-                if installer_code_changed:
-                    _LOGGER.info("Codice installatore modificato - reload integrazione per ricaricare zone")
+                # Se password o codice installatore cambiati, forza reload dell'integrazione
+                if password_changed or installer_code_changed:
+                    reason = []
+                    if password_changed:
+                        reason.append("password")
+                    if installer_code_changed:
+                        reason.append("codice installatore")
+                    _LOGGER.info("Credenziali modificate (%s) - reload integrazione", ", ".join(reason))
                     # Schedula il reload dopo che l'options flow è completato
                     self.hass.async_create_task(
                         self.hass.config_entries.async_reload(self._entry.entry_id)

@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .client import EuroNetClient, StatoCentrale
 from .zone_config import (
-    ZoneConfigFetcher,
+    ZoneConfigFetcherSync,
     ZoneConfigs,
     ZoneFilareConfig,
     ZoneRadioConfig,
@@ -43,6 +43,11 @@ DEFAULT_UPDATE_INTERVAL = timedelta(milliseconds=DEFAULT_POLLING_INTERVAL_MS)
 ZONE_CONFIG_RETRY_DELAY = 60  # Secondi tra un retry e l'altro
 ZONE_CONFIG_MAX_RETRIES = 10  # Numero massimo di retry automatici
 
+# Logger separato per il DataUpdateCoordinator base (per silenziare "Finished fetching")
+# Questo evita lo spam nei log ogni polling cycle
+_COORDINATOR_LOGGER = logging.getLogger(__name__ + ".polling")
+_COORDINATOR_LOGGER.setLevel(logging.WARNING)  # Solo warning e superiori
+
 
 class EuroNetCoordinator(DataUpdateCoordinator):
     """Coordinator per gestire l'aggiornamento dati dalla centrale locale."""
@@ -60,9 +65,11 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         )
         update_interval = timedelta(milliseconds=polling_ms)
         
+        # Usa un logger separato con livello WARNING per evitare spam
+        # Il log "Finished fetching" del DataUpdateCoordinator base non apparirà
         super().__init__(
             hass,
-            _LOGGER,
+            _COORDINATOR_LOGGER,
             name="EuroNET",
             update_interval=update_interval,
         )
@@ -73,7 +80,6 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         # Stato sessione web
         self._session_valid = False
         self._login_retry_count = 0
-        self._max_login_retries = 3
         self._login_cooldown_until: float = 0  # Timestamp fino a cui attendere prima di riprovare
         
         # Cache configurazione zone (caricata una volta all'init)
@@ -94,15 +100,35 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             polling_ms
         )
     
+    async def async_request_refresh(self) -> None:
+        """Override per evitare refresh quando siamo in cooldown.
+        
+        Questo previene lo spam di log "Finished fetching" quando il login
+        fallisce e centinaia di entità si registrano contemporaneamente.
+        """
+        import time
+        if time.time() < self._login_cooldown_until:
+            # Siamo in cooldown, ignora silenziosamente la richiesta di refresh
+            return
+        await super().async_request_refresh()
+    
     @property
     def num_zone_filari(self) -> int:
         """Numero di zone filari configurate."""
-        return self.config_entry.options.get(CONF_NUM_ZONE_FILARI, 0)
+        # Controlla prima options, poi data (per compatibilità)
+        return self.config_entry.options.get(
+            CONF_NUM_ZONE_FILARI,
+            self.config_entry.data.get(CONF_NUM_ZONE_FILARI, 0)
+        )
     
     @property
     def num_zone_radio(self) -> int:
         """Numero di zone radio configurate."""
-        return self.config_entry.options.get(CONF_NUM_ZONE_RADIO, 0)
+        # Controlla prima options, poi data (per compatibilità)
+        return self.config_entry.options.get(
+            CONF_NUM_ZONE_RADIO,
+            self.config_entry.data.get(CONF_NUM_ZONE_RADIO, 0)
+        )
     
     @property
     def arm_profiles(self) -> dict:
@@ -130,6 +156,28 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self._zone_configs_complete = False
         self._zone_config_retry_count = 0
         _LOGGER.debug("Cache configurazioni zone resettata")
+    
+    def reset_session_state(self) -> None:
+        """Resetta lo stato della sessione per permettere nuovi tentativi immediati.
+        
+        Chiamare questo metodo dopo un reload dell'integrazione per
+        evitare che il cooldown impedisca la riconnessione.
+        """
+        self._session_valid = False
+        self._login_retry_count = 0
+        self._login_cooldown_until = 0
+        _LOGGER.debug("Stato sessione resettato")
+    
+    def update_polling_interval(self, polling_ms: int) -> None:
+        """Aggiorna l'intervallo di polling dinamicamente.
+        
+        Args:
+            polling_ms: Nuovo intervallo in millisecondi
+        """
+        new_interval = timedelta(milliseconds=polling_ms)
+        if self.update_interval != new_interval:
+            self.update_interval = new_interval
+            _LOGGER.debug("Polling interval aggiornato a %dms", polling_ms)
     
     async def _send_triggered_notification(self, system_data: dict) -> None:
         """Invia notifica quando scatta l'allarme.
@@ -347,68 +395,50 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         )
 
     async def _schedule_zone_config_retry(self) -> None:
-        """Programma un retry per il caricamento delle zone mancanti."""
+        """Programma un retry per il caricamento delle zone mancanti.
+        
+        Questo metodo tenta di caricare le zone mancanti in background.
+        Non forza più un reload dell'integrazione - le zone verranno
+        aggiornate al prossimo reload manuale.
+        """
         if self._zone_config_retry_count >= ZONE_CONFIG_MAX_RETRIES:
-            _LOGGER.warning(
+            _LOGGER.info(
                 "Raggiunto il limite massimo di retry (%d) per caricamento zone. "
-                "Alcune zone potrebbero non essere configurate correttamente.",
+                "Ricarica manualmente l'integrazione per riprovare.",
                 ZONE_CONFIG_MAX_RETRIES
             )
             return
         
         self._zone_config_retry_count += 1
-        _LOGGER.debug(
-            "Programmato retry automatico caricamento zone tra %d secondi (tentativo %d/%d)",
-            ZONE_CONFIG_RETRY_DELAY,
-            self._zone_config_retry_count,
-            ZONE_CONFIG_MAX_RETRIES
-        )
         
         await asyncio.sleep(ZONE_CONFIG_RETRY_DELAY)
-        
-        # Salva il numero di zone caricate prima del retry
-        prev_filari = len(self._zone_configs.zone_filari) if self._zone_configs else 0
-        prev_radio = len(self._zone_configs.zone_radio) if self._zone_configs else 0
         
         # Reset per permettere un nuovo tentativo
         self._zone_configs_loaded = False
         
-        # Esegui il caricamento (passiamo from_retry=True per gestire la logica)
+        # Esegui il caricamento (passiamo from_retry=True)
         await self._async_load_zone_configs(from_retry=True)
         
-        # Dopo il retry, verifica se abbiamo caricato nuove zone
+        # Verifica se dobbiamo programmare un altro retry
         if self._zone_configs:
-            new_filari = len(self._zone_configs.zone_filari)
-            new_radio = len(self._zone_configs.zone_radio)
+            num_filari = self.num_zone_filari
+            num_radio = self.num_zone_radio
+            loaded_filari = len(self._zone_configs.zone_filari)
+            loaded_radio = len(self._zone_configs.zone_radio)
             
-            # Se abbiamo caricato nuove zone, forza un reload dell'integrazione
-            if new_filari > prev_filari or new_radio > prev_radio:
-                _LOGGER.debug(
-                    "Caricate nuove zone (filari: %d->%d, radio: %d->%d). "
-                    "Ricarico l'integrazione per creare le nuove entità...",
-                    prev_filari, new_filari, prev_radio, new_radio
+            if (loaded_filari < num_filari or loaded_radio < num_radio) and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
+                self._zone_config_retry_task = asyncio.create_task(
+                    self._schedule_zone_config_retry()
                 )
-                # Schedula il reload per non bloccare
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
-                )
-            else:
-                # Non abbiamo caricato nuove zone, programma un altro retry
-                num_filari = self.num_zone_filari
-                num_radio = self.num_zone_radio
-                if (new_filari < num_filari or new_radio < num_radio) and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
-                    _LOGGER.debug("Retry non ha caricato nuove zone, ne programmo un altro")
-                    self._zone_config_retry_task = asyncio.create_task(
-                        self._schedule_zone_config_retry()
-                    )
         
     async def _async_load_zone_configs(self, from_retry: bool = False) -> None:
         """Carica le configurazioni complete delle zone usando il codice installatore.
         
         Questo metodo viene chiamato una sola volta durante l'inizializzazione
-        o durante il reload dell'integrazione. Usa ZoneConfigFetcher per
+        o durante il reload dell'integrazione. Usa ZoneConfigFetcherSync per
         recuperare tutti i dati di configurazione delle zone filari e radio
-        dalla centrale tramite web scraping.
+        dalla centrale tramite web scraping. La nuova classe usa la stessa
+        sessione HTTP del client principale, evitando conflitti di sessione.
         
         Args:
             from_retry: Se True, siamo in un retry e non creiamo nuovi task di retry
@@ -435,9 +465,13 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             installer_code = options.get(CONF_INSTALLER_CODE) or data.get(CONF_INSTALLER_CODE, "")
             
             if not installer_code:
-                _LOGGER.debug(
-                    "Codice installatore non configurato - "
-                    "i dettagli di configurazione delle zone non saranno disponibili"
+                _LOGGER.warning(
+                    "Codice installatore NON configurato (vuoto='%s') - "
+                    "i dettagli di configurazione delle zone non saranno disponibili. "
+                    "Options keys: %s, Data keys: %s",
+                    installer_code,
+                    list(options.keys()),
+                    list(data.keys())
                 )
                 self._zone_configs_loaded = True
                 return
@@ -451,79 +485,45 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 return
                 
             try:
-                _LOGGER.debug(
-                    "Caricamento configurazione zone: %d filari, %d radio",
-                    num_filari, num_radio
-                )
-                
-                # Usa ZoneConfigFetcher per recuperare le configurazioni
-                fetcher = ZoneConfigFetcher(
-                    host=host,
-                    username=DEFAULT_LOCAL_USERNAME,
-                    password=password,
-                    installer_code=installer_code,
+                # Usa ZoneConfigFetcherSync con il client esistente
+                # Questo evita conflitti di sessione (stessa sessione HTTP)
+                fetcher = ZoneConfigFetcherSync(
+                    client=self.client,
+                    hass=self.hass,
                     num_zone_filari=num_filari,
                     num_zone_radio=num_radio,
-                    timeout=30,  # Timeout più lungo per il fetch iniziale
                 )
                 
-                # Esegui il fetch in un executor per non bloccare
+                # Esegui il fetch (usa la stessa sessione del client)
                 new_configs = await fetcher.fetch_all_zones()
-                
-                # Debug: log stato prima del merge
-                prev_count = len(self._zone_configs.zone_filari) if self._zone_configs else 0
-                new_count = len(new_configs.zone_filari) if new_configs else 0
-                _LOGGER.debug(
-                    "Merge zone: precedenti=%d, nuove=%d, self._zone_configs=%s, new_configs=%s",
-                    prev_count, new_count, 
-                    bool(self._zone_configs), bool(new_configs)
-                )
                 
                 # Merge con le configurazioni esistenti (per retry)
                 if self._zone_configs and new_configs:
                     # Unisci le zone: le nuove si aggiungono/sovrascrivono le vecchie
-                    _LOGGER.debug("Merge: zone esistenti=%s, nuove=%s", 
-                        list(self._zone_configs.zone_filari.keys()),
-                        list(new_configs.zone_filari.keys())
-                    )
                     for zona_num, zona_config in new_configs.zone_filari.items():
                         self._zone_configs.zone_filari[zona_num] = zona_config
                     for zona_num, zona_config in new_configs.zone_radio.items():
                         self._zone_configs.zone_radio[zona_num] = zona_config
                     self._zone_configs.timestamp = new_configs.timestamp
-                    _LOGGER.debug("Dopo merge: zone=%s", list(self._zone_configs.zone_filari.keys()))
                 elif new_configs:
-                    _LOGGER.debug("No merge: self._zone_configs è None/vuoto, uso new_configs")
                     self._zone_configs = new_configs
-                else:
-                    _LOGGER.warning("No merge: new_configs è None/vuoto")
                 
                 # Log dei risultati e verifica completezza
                 if self._zone_configs:
                     loaded_filari = len(self._zone_configs.zone_filari)
                     loaded_radio = len(self._zone_configs.zone_radio)
-                    configured_filari = len(self._zone_configs.zone_filari_configurate)
-                    configured_radio = len(self._zone_configs.zone_radio_configurate)
                     
-                    _LOGGER.debug(
-                        "Configurazioni zone caricate: %d/%d filari (%d configurate), "
-                        "%d/%d radio (%d configurate)",
-                        loaded_filari, num_filari, configured_filari,
-                        loaded_radio, num_radio, configured_radio,
+                    _LOGGER.info(
+                        "Zone configs caricate: %d/%d filari, %d/%d radio",
+                        loaded_filari, num_filari,
+                        loaded_radio, num_radio,
                     )
                     
                     # Verifica se tutte le zone attese sono state caricate
                     if loaded_filari >= num_filari and loaded_radio >= num_radio:
                         self._zone_configs_complete = True
-                        _LOGGER.debug("Caricamento zone completato con successo")
                     else:
                         self._zone_configs_complete = False
-                        missing_filari = num_filari - loaded_filari
-                        missing_radio = num_radio - loaded_radio
-                        _LOGGER.debug(
-                            "Caricamento zone incompleto: mancano %d filari e %d radio",
-                            max(0, missing_filari), max(0, missing_radio)
-                        )
                         # Programma retry automatico solo se non siamo già in un retry
                         # (il retry gestisce autonomamente il prossimo tentativo)
                         if not from_retry and self._zone_config_retry_count < ZONE_CONFIG_MAX_RETRIES:
@@ -540,6 +540,8 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                         )
                 
                 self._zone_configs_loaded = True
+                # Non serve più invalidare la sessione: ZoneConfigFetcherSync
+                # usa la stessa sessione del client principale
                 
             except Exception as e:
                 _LOGGER.error("Errore caricamento configurazioni zone: %s", e)
@@ -554,10 +556,10 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         """Assicura che la sessione web sia valida, effettuando login se necessario.
         
         Implementa un cooldown esponenziale per evitare troppi tentativi ravvicinati
-        che potrebbero sovraccaricare la centrale.
+        che potrebbero sovraccaricare la centrale. Riprova all'infinito con backoff.
         
         Returns:
-            True se la sessione è valida, False se il login fallisce
+            True se la sessione è valida, False se in cooldown
         """
         import time
         
@@ -569,23 +571,17 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         if now < self._login_cooldown_until:
             return False
         
-        # Se abbiamo superato il limite di retry, imposta cooldown lungo (5 minuti)
-        if self._login_retry_count >= self._max_login_retries:
-            # Dopo 3 tentativi falliti, attendi 5 minuti prima di riprovare
-            self._login_cooldown_until = now + 300  # 5 minuti
-            # Logga solo una volta quando si entra in cooldown
-            if self._login_retry_count == self._max_login_retries:
-                _LOGGER.warning(
-                    "Login EuroNET fallito dopo %d tentativi. Prossimo tentativo tra 5 minuti.",
-                    self._max_login_retries
-                )
-                self._login_retry_count += 1  # Incrementa per non loggare di nuovo
-            return False
-        
         # Ottieni il codice installatore per il login
-        installer_code = getattr(self.client, 'installer_code', None)
+        installer_code = getattr(self.client, 'installer_code', None) or ""
+        
         if not installer_code:
-            # Prova comunque a leggere lo stato senza login (potrebbe funzionare per dati base)
+            # Senza codice installatore non possiamo accedere alle configurazioni zone
+            # ma possiamo comunque leggere lo stato base
+            _LOGGER.debug(
+                "Nessun codice installatore configurato - "
+                "le configurazioni zone non saranno disponibili"
+            )
+            self._session_valid = True  # Segna come valido per evitare retry continui
             return True
         
         try:
@@ -599,15 +595,19 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                 return True
             else:
                 self._login_retry_count += 1
-                # Cooldown progressivo: 5s, 15s, 30s
-                cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 30)
+                # Cooldown progressivo: 5s, 10s, 20s, 40s, max 60s
+                cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 60)
                 self._login_cooldown_until = now + cooldown
+                _LOGGER.debug(
+                    "Login EuroNET fallito (tentativo %d). Prossimo tentativo tra %ds.",
+                    self._login_retry_count, cooldown
+                )
                 return False
         except Exception as e:
             self._login_retry_count += 1
-            cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 30)
+            cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 60)
             self._login_cooldown_until = now + cooldown
-            _LOGGER.debug("Errore login EuroNET: %s", e)
+            _LOGGER.debug("Errore login EuroNET: %s. Prossimo tentativo tra %ds.", e, cooldown)
             return False
     
     def invalidate_session(self) -> None:
@@ -625,21 +625,19 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         """Fetch data dalla centrale locale."""
         import time
         
-        # Se siamo in cooldown login, restituisci dati cached o errore silenzioso
+        # Se siamo in cooldown login, lancia errore (entità diventano unavailable)
         if time.time() < self._login_cooldown_until:
-            if self._systems:
-                return self._systems  # Restituisci dati cached
-            raise UpdateFailed("Login in cooldown - attendere")
+            raise UpdateFailed("Login in cooldown - centrale non raggiungibile")
         
         try:
             # Assicura che la sessione sia valida
             if not await self._ensure_session():
-                # Login fallito, restituisci dati cached se disponibili
-                if self._systems:
-                    return self._systems
-                raise UpdateFailed("Sessione non valida")
+                # Login fallito - centrale non raggiungibile
+                raise UpdateFailed("Centrale non raggiungibile - login fallito")
             
             # Al primo update, carica le configurazioni delle zone
+            # ZoneConfigFetcherSync usa la stessa sessione del client,
+            # quindi non ci sono conflitti di sessione
             if not self._zone_configs_loaded:
                 await self._async_load_zone_configs()
             

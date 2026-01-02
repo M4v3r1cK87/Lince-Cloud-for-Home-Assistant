@@ -63,9 +63,11 @@ class EuroNetRebootButton(CoordinatorEntity, ButtonEntity):
         # Costruisci URL reboot per riferimento
         port = coordinator.client.port
         if port == 80:
-            self._reboot_url = f"http://{host}/protect/reboot.cgi"
+            self._reboot_url_cgi = f"http://{host}/protect/reboot.cgi"
+            self._reboot_url_html = f"http://{host}/protect/reboot.htm?EURONET"
         else:
-            self._reboot_url = f"http://{host}:{port}/protect/reboot.cgi"
+            self._reboot_url_cgi = f"http://{host}:{port}/protect/reboot.cgi"
+            self._reboot_url_html = f"http://{host}:{port}/protect/reboot.htm?EURONET"
         
         self._attr_name = "Riavvio EuroNET"
         self._attr_unique_id = f"euronet_{host}_reboot"
@@ -82,7 +84,8 @@ class EuroNetRebootButton(CoordinatorEntity, ButtonEntity):
     def extra_state_attributes(self) -> dict:
         """Attributi aggiuntivi del pulsante."""
         return {
-            "reboot_url": self._reboot_url,
+            "reboot_url_cgi": self._reboot_url_cgi,
+            "reboot_url_html": self._reboot_url_html,
         }
     
     async def async_press(self) -> None:

@@ -6,6 +6,8 @@
 
 Integrazione Home Assistant per il controllo e monitoraggio delle centrali d'allarme **Lince**.
 
+> ⚠️ **ATTENZIONE - Serie GR868**: Se utilizzi una centrale **Lince GR868** con modulo EuroNET, l'intervallo di polling deve essere impostato ad **almeno 2000ms (2 secondi)**. Valori inferiori possono causare problemi di comunicazione, mancata risposta ai comandi e comportamenti anomali.
+
 ## 🎯 Centrali e Modalità Supportate
 
 | Centrale | Modalità Cloud | Modalità Locale (EuroNET) |

@@ -3,6 +3,8 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 from .const import DOMAIN
 from .euronet.const import (
     CONF_LOCAL_MODE, 
@@ -21,6 +23,45 @@ import voluptuous as vol
 _LOGGER = logging.getLogger(__name__)
 
 platforms = ["sensor", "switch", "binary_sensor", "alarm_control_panel", "button"]
+
+
+async def _async_remove_entities_from_registry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Rimuove tutte le entità dell'integrazione dal registry.
+    
+    Questo forza la ricreazione completa delle entità al prossimo setup,
+    assicurando che nomi, attributi e sw_version vengano aggiornati.
+    """
+    try:
+        entity_registry = er.async_get(hass)
+        device_registry = dr.async_get(hass)
+        
+        # Trova tutte le entità associate a questa config entry
+        entities_to_remove = [
+            entity.entity_id
+            for entity in entity_registry.entities.values()
+            if entity.config_entry_id == entry.entry_id
+        ]
+        
+        # Rimuovi le entità
+        for entity_id in entities_to_remove:
+            entity_registry.async_remove(entity_id)
+        
+        # Trova e rimuovi i device associati a questa config entry
+        devices_to_remove = [
+            device.id
+            for device in device_registry.devices.values()
+            if entry.entry_id in device.config_entries
+        ]
+        
+        for device_id in devices_to_remove:
+            device_registry.async_remove_device(device_id)
+        
+        _LOGGER.debug(
+            "Rimossi %d entità e %d device dal registry per ricreazione",
+            len(entities_to_remove), len(devices_to_remove)
+        )
+    except Exception as e:
+        _LOGGER.warning("Errore rimozione entità dal registry: %s", e)
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
@@ -84,20 +125,62 @@ async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntr
     # Crea coordinator locale
     coordinator = EuroNetCoordinator(hass, client, config_entry)
     
-    # Primo refresh
+    # =========================================================================
+    # FASE 1: Login e caricamento configurazioni PRIMA di creare le entità
+    # =========================================================================
+    
+    # Effettua login con codice installatore (se configurato)
+    # Retry fino a 3 volte con delay crescente per dare tempo alla centrale
+    if installer_code:
+        for attempt in range(3):
+            try:
+                if attempt > 0:
+                    delay = attempt * 2  # 2s, 4s
+                    await asyncio.sleep(delay)
+                
+                login_success = await hass.async_add_executor_job(
+                    client.login, installer_code
+                )
+                if login_success:
+                    coordinator._session_valid = True
+                    break
+            except Exception as e:
+                _LOGGER.debug("Tentativo login %d fallito: %s", attempt + 1, e)
+        else:
+            _LOGGER.warning("Login con codice installatore fallito dopo 3 tentativi")
+    
+    # Carica configurazioni zone (nomi, tipologie, tempi, ecc.)
+    # Questo deve avvenire PRIMA della creazione delle entità
+    try:
+        await coordinator._async_load_zone_configs()
+        if coordinator.zone_configs:
+            _LOGGER.info(
+                "Configurazioni zone caricate: %d filari, %d radio",
+                len(coordinator.zone_configs.zone_filari),
+                len(coordinator.zone_configs.zone_radio)
+            )
+    except Exception as e:
+        _LOGGER.warning("Errore caricamento configurazioni zone: %s", e)
+    
+    # =========================================================================
+    # FASE 2: Primo refresh per ottenere stato corrente
+    # =========================================================================
+    
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception as e:
-        _LOGGER.debug("Primo refresh locale fallito: %s - Retry automatico attivo", e)
+        _LOGGER.warning("Primo refresh locale fallito: %s - Retry automatico attivo", e)
     
-    # Salva in hass.data
+    # =========================================================================
+    # FASE 3: Salva in hass.data e crea piattaforme
+    # =========================================================================
     hass.data[DOMAIN]["local_mode"] = True
     hass.data[DOMAIN]["local_client"] = client
     hass.data[DOMAIN]["coordinator"] = coordinator
     hass.data[DOMAIN]["api"] = None  # Non usato in modalità locale
     hass.data[DOMAIN]["primary_brand"] = "lince-europlus"
     
-    _LOGGER.debug(f"Lince Alarm LOCAL setup completato. Host: {host}:{port}")
+    _LOGGER.info("Lince Alarm LOCAL setup completato: %s:%d", host, port)
     
     # Setup delle piattaforme
     await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
@@ -247,7 +330,6 @@ async def _async_setup_cloud_entry(hass: HomeAssistant, config_entry: ConfigEntr
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Scarica l'integrazione e chiudi tutte le socket."""
-    _LOGGER.debug("Scaricamento integrazione Lince Alarm...")
     
     # Cancella i task in background del coordinator e fai cleanup
     coordinator = hass.data[DOMAIN].get("coordinator")
@@ -256,7 +338,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if hasattr(coordinator, "async_shutdown"):
             try:
                 await coordinator.async_shutdown()
-                _LOGGER.debug("Shutdown coordinator completato")
             except Exception as e:
                 _LOGGER.error(f"Errore shutdown coordinator: {e}")
         # Per modalità cloud, cancella _retry_task se esiste
@@ -268,9 +349,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if api and hasattr(api, 'close_all_sockets'):
         try:
             await api.close_all_sockets()
-            _LOGGER.debug("Socket chiuse durante unload")
         except Exception as e:
             _LOGGER.error(f"Errore chiusura socket durante unload: {e}")
+    
+    # Rimuovi le entità dal registry per forzare ricreazione completa al reload
+    # Questo assicura che nomi, attributi e sw_version vengano aggiornati
+    await _async_remove_entities_from_registry(hass, entry)
+    
+    # Attendi che la centrale elabori il logout prima di procedere
+    # Questo evita problemi di "Chiavi XOR insufficienti" al prossimo login
+    local_mode = entry.data.get(CONF_LOCAL_MODE, False)
+    if local_mode:
+        await asyncio.sleep(2)
     
     # Scarica le piattaforme
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
@@ -291,7 +381,16 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry):
     coord = hass.data[DOMAIN].get("coordinator")
     if coord:
         if local_mode:
-            # Modalità locale: verifica se il codice installatore è stato aggiunto/modificato
+            # Modalità locale: aggiorna polling interval se cambiato
+            from .euronet.const import CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL_MS
+            new_polling = entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL_MS)
+            if hasattr(coord, 'update_polling_interval'):
+                coord.update_polling_interval(new_polling)
+                # Resetta anche il cooldown per permettere un nuovo tentativo immediato
+                if hasattr(coord, 'reset_session_state'):
+                    coord.reset_session_state()
+            
+            # Verifica se il codice installatore è stato aggiunto/modificato
             # In questo caso forziamo il reload delle configurazioni zone
             installer_code = entry.data.get(CONF_INSTALLER_CODE, "")
             if installer_code and hasattr(coord, 'reset_zone_configs_cache'):

@@ -38,7 +38,7 @@
       },
       "local_config": {
         "title": "Configurazione Centrale Locale",
-        "description": "Configura le zone e i profili di attivazione della centrale.\n\nZone: massimo {max_filari} zone filari e {max_radio} zone radio.\n\nProfili: associa i programmi (G1, G2, G3, GEXT) alle modalità del pannello allarme.\nSolo le modalità con almeno un programma saranno disponibili.",
+        "description": "Configura le zone e i profili di attivazione della centrale.\n\nZone: massimo {max_filari} zone filari e {max_radio} zone radio.\n\nProfili: associa i programmi (G1, G2, G3, GEXT) alle modalità del pannello allarme.\nSolo le modalità con almeno un programma saranno disponibili.\n\n⚠️ **Serie GR868:** per evitare problemi di login, impostare l'intervallo di polling ad almeno **2 secondi**.",
         "data": {
           "num_zone_filari": "Numero zone filari",
           "num_zone_radio": "Numero zone radio",
@@ -98,7 +98,7 @@
       },
       "local_options": {
         "title": "Configurazione Centrale Locale",
-        "description": "Centrale: {host}\n\n**Credenziali:** lascia vuoto per non modificare i valori attuali.\n\n**Zone e profili:** configura le zone e le modalità di attivazione.",
+        "description": "Centrale: {host}\n\n⚠️ **Serie GR868:** per evitare problemi di login, impostare il polling ad almeno **2 secondi**.\n\n**Credenziali:** lascia vuoto per non modificare i valori attuali.\n\n**Zone e profili:** configura le zone e le modalità di attivazione.",
         "data": {
           "password": "Nuova password (HTTP Basic Auth)",
           "installer_code": "Nuovo codice installatore",

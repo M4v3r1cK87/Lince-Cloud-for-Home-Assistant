@@ -50,7 +50,11 @@ def setup_euronet_binary_sensors(coordinator, config_entry: ConfigEntry, hass):
     """
     Setup COMPLETO dei binary sensors per EuroNET.
     Crea dinamicamente i sensori basandosi su BINARY_SENSOR_CENTRALE_MAPPING
-    e le zone presenti nei dati del coordinator.
+    e il numero di zone configurate nella centrale.
+    
+    Le zone vengono create basandosi su num_zone_filari e num_zone_radio
+    del coordinator, NON sui dati (che potrebbero non essere disponibili
+    se il primo refresh fallisce).
     """
     entities = []
     
@@ -65,37 +69,33 @@ def setup_euronet_binary_sensors(coordinator, config_entry: ConfigEntry, hass):
         entities.append(entity)
         _LOGGER.debug(f"Creato binary sensor centrale: {data_key}")
     
-    # 2. Zone (dinamiche dai dati del coordinator)
-    if coordinator.data and len(coordinator.data) > 0:
-        system = coordinator.data[0]
-        entries = system.get("entries", {})
-        
-        for zone_key, zone_data in entries.items():
-            # Determina il tipo di zona
-            if zone_key.startswith("zona_filare_"):
-                zone_type = "filare"
-                zone_config = ZONE_FILARE_CONFIG
-            elif zone_key.startswith("zona_radio_"):
-                zone_type = "radio"
-                zone_config = ZONE_RADIO_CONFIG
-            else:
-                continue  # Skip non-zone entries
-            
-            zone_number = zone_data.get("numero", 0)
-            zone_name = zone_data.get("nome", f"Zona {zone_number}")
-            
-            entity = EuroNetZoneBinarySensor(
-                coordinator=coordinator,
-                config_entry=config_entry,
-                zone_number=zone_number,
-                zone_name=zone_name,
-                zone_type=zone_type,
-                mapping=zone_config,
-            )
-            entities.append(entity)
-            _LOGGER.debug(f"Creato binary sensor zona {zone_type}: {zone_name}")
+    # 2. Zone filari (basate su num_zone_filari, non sui dati)
+    num_filari = getattr(coordinator, 'num_zone_filari', 0)
+    for zone_number in range(1, num_filari + 1):
+        entity = EuroNetZoneBinarySensor(
+            coordinator=coordinator,
+            config_entry=config_entry,
+            zone_number=zone_number,
+            zone_type="filare",
+            mapping=ZONE_FILARE_CONFIG,
+        )
+        entities.append(entity)
+        _LOGGER.debug(f"Creato binary sensor zona filare {zone_number}")
     
-    _LOGGER.info(f"Creati {len(entities)} binary sensor per EuroNET")
+    # 3. Zone radio (basate su num_zone_radio, non sui dati)
+    num_radio = getattr(coordinator, 'num_zone_radio', 0)
+    for zone_number in range(1, num_radio + 1):
+        entity = EuroNetZoneBinarySensor(
+            coordinator=coordinator,
+            config_entry=config_entry,
+            zone_number=zone_number,
+            zone_type="radio",
+            mapping=ZONE_RADIO_CONFIG,
+        )
+        entities.append(entity)
+        _LOGGER.debug(f"Creato binary sensor zona radio {zone_number}")
+    
+    _LOGGER.info(f"Creati {len(entities)} binary sensor per EuroNET ({num_filari} zone filari, {num_radio} zone radio)")
     return entities
 
 
@@ -140,14 +140,19 @@ class EuroNetBaseBinarySensor(CoordinatorEntity, BinarySensorEntity):
         if "icon" in mapping:
             self._attr_icon = mapping["icon"]
         
-        # Device info comune per raggruppare le entità
+        # Host per device_info
+        self._host = host
+
+    @property
+    def device_info(self):
+        """Device info dinamico per aggiornare sw_version."""
         sw_version = "N/A"
-        if coordinator.data and len(coordinator.data) > 0:
-            sw_version = str(coordinator.data[0].get("release_sw", "N/A"))
+        if self.coordinator.data and len(self.coordinator.data) > 0:
+            sw_version = str(self.coordinator.data[0].get("release_sw", "N/A"))
             
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"euronet_{host}")},
-            "name": f"EuroNET ({host})",
+        return {
+            "identifiers": {(DOMAIN, f"euronet_{self._host}")},
+            "name": f"EuroNET ({self._host})",
             "manufacturer": MANUFACTURER,
             "model": "4124EURONET",
             "sw_version": sw_version,
@@ -219,7 +224,6 @@ class EuroNetZoneBinarySensor(EuroNetBaseBinarySensor):
         coordinator,
         config_entry: ConfigEntry,
         zone_number: int,
-        zone_name: str,
         zone_type: str,  # "filare" o "radio"
         mapping: dict,
     ):
@@ -230,14 +234,11 @@ class EuroNetZoneBinarySensor(EuroNetBaseBinarySensor):
         # Chiave: zona_filare_X o zona_radio_X
         data_key = f"zona_{zone_type}_{zone_number}"
         
-        # Override del nome con formato "Zona <numero>: <nome>"
-        mapping = mapping.copy()
-        if zone_name:
-            mapping["friendly_name"] = f"Zona {zone_number}: {zone_name}"
-        else:
-            mapping["friendly_name"] = f"Zona {zone_type.title()} {zone_number}"
-        
         super().__init__(coordinator, config_entry, data_key, mapping)
+        
+        # IMPORTANTE: Rimuovi _attr_name per permettere alla property name di funzionare
+        # La property name è dinamica e si aggiorna quando zone_configs diventa disponibile
+        del self._attr_name
         
         # Device class per zone
         dc = mapping.get("device_class", "door")
@@ -249,17 +250,41 @@ class EuroNetZoneBinarySensor(EuroNetBaseBinarySensor):
         self._icon_off = mapping.get("icon_off", "mdi:door-closed")
         
         # Override device_info per raggruppare le zone in device separati
-        # (come fatto per il cloud)
         host = coordinator.client.host
-        zone_type_label = "Zone Filari" if zone_type == "filare" else "Zone Radio"
+        self._zone_device_host = host
+        self._zone_device_type = zone_type
+
+    @property
+    def name(self) -> str:
+        """Nome dinamico che si aggiorna quando zone_configs diventa disponibile."""
+        # Prova a recuperare il nome dalla configurazione zone (caricata dopo il login)
+        zone_name = None
+        if self.coordinator.zone_configs:
+            if self._zone_type == "filare":
+                zone_config = self.coordinator.zone_configs.zone_filari.get(self._zone_number)
+            else:
+                zone_config = self.coordinator.zone_configs.zone_radio.get(self._zone_number)
+            
+            if zone_config:
+                zone_name = getattr(zone_config, "nome", "") or ""
         
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"euronet_{host}_{zone_type}")},
-            "name": f"{zone_type_label} ({host})",
+        # Se non abbiamo il nome dalla config, usa il tipo come fallback
+        if not zone_name:
+            zone_name = f"{self._zone_type.title()} {self._zone_number}"
+        
+        return f"Zona {self._zone_number}: {zone_name}"
+
+    @property
+    def device_info(self):
+        """Override device_info per raggruppare le zone in device separati."""
+        zone_type_label = "Zone Filari" if self._zone_device_type == "filare" else "Zone Radio"
+        return {
+            "identifiers": {(DOMAIN, f"euronet_{self._zone_device_host}_{self._zone_device_type}")},
+            "name": f"{zone_type_label} ({self._zone_device_host})",
             "manufacturer": MANUFACTURER,
             "model": "4124EURONET",
             # Collega alla centrale principale tramite via_device
-            "via_device": (DOMAIN, f"euronet_{host}"),
+            "via_device": (DOMAIN, f"euronet_{self._zone_device_host}"),
         }
 
     @property
@@ -283,7 +308,7 @@ class EuroNetZoneBinarySensor(EuroNetBaseBinarySensor):
         """Attributi aggiuntivi della zona.
         
         Include sia lo stato runtime che la configurazione della zona
-        (recuperata una volta all'init dall'interfaccia web EuroNET).
+        (recuperata dal coordinator.zone_configs).
         """
         attrs = {}
         system = self._get_system_data()
@@ -298,31 +323,71 @@ class EuroNetZoneBinarySensor(EuroNetBaseBinarySensor):
                     if attr in zone:
                         attrs[attr] = zone[attr]
                 
-                # Attributi di configurazione (scaricati una volta all'init)
-                config = zone.get("config", {})
-                if config:
-                    # Attributi di configurazione con nomi leggibili
-                    for key, value in config.items():
-                        # Converti liste in stringhe leggibili
-                        if isinstance(value, list):
-                            value = ", ".join(str(v) for v in value) if value else "Nessuno"
-                        
-                        # Formatta il nome dell'attributo (rimuovi underscore, capitalizza)
-                        attr_name = key.replace("_", " ").title()
-                        
-                        # Aggiungi unità di misura per i tempi
-                        if "tempo_ingresso" in key.lower():
-                            attr_name = "Tempo ingresso (sec)"
-                        elif "tempo_uscita" in key.lower():
-                            attr_name = "Tempo uscita (sec)"
-                        
-                        attrs[attr_name] = value
-                
                 # Attributi extra per zone radio
                 if self._zone_type == "radio":
                     if "supervisione" in zone:
                         attrs["supervisione"] = zone["supervisione"]
                     if "batteria_scarica" in zone:
                         attrs["batteria_scarica"] = zone["batteria_scarica"]
+        
+        # Attributi di configurazione (da zone_configs, non dai dati runtime)
+        if self.coordinator.zone_configs:
+            if self._zone_type == "filare":
+                zone_config = self.coordinator.zone_configs.zone_filari.get(self._zone_number)
+            else:
+                zone_config = self.coordinator.zone_configs.zone_radio.get(self._zone_number)
+            
+            if zone_config:
+                if self._zone_type == "filare":
+                    # Tipo contatto
+                    tipo_label = getattr(zone_config, "tipo_label", None)
+                    if tipo_label:
+                        attrs["Tipo Contatto"] = tipo_label
+                    
+                    # Trigger
+                    trigger_label = getattr(zone_config, "trigger_label", None)
+                    if trigger_label:
+                        attrs["Trigger"] = trigger_label
+                    
+                    # Tempi (sempre mostrati)
+                    attrs["Tempo Ingresso (sec)"] = getattr(zone_config, "tempo_ingresso_totale", 0)
+                    attrs["Tempo Uscita (sec)"] = getattr(zone_config, "tempo_uscita_totale", 0)
+                    
+                    # Logica e allarmi
+                    logica_label = getattr(zone_config, "logica_label", None)
+                    if logica_label:
+                        attrs["Logica"] = logica_label
+                    
+                    num_allarmi = getattr(zone_config, "numero_allarmi_label", None)
+                    if num_allarmi:
+                        attrs["Numero Allarmi"] = num_allarmi
+                    
+                    # Programmi attivi (G1, G2, G3, GExt)
+                    programmi = getattr(zone_config, "programmi", {})
+                    if programmi:
+                        programmi_attivi = [k for k, v in programmi.items() if v]
+                        attrs["Programmi"] = ", ".join(programmi_attivi) if programmi_attivi else "Nessuno"
+                    
+                    # Opzioni booleane (mostra tutte)
+                    attrs["H24"] = getattr(zone_config, "h24", False)
+                    attrs["Ritardato"] = getattr(zone_config, "ritardato", False)
+                    attrs["Silenzioso"] = getattr(zone_config, "silenzioso", False)
+                    attrs["Parzializzabile"] = getattr(zone_config, "parzializzabile", False)
+                    attrs["Percorso"] = getattr(zone_config, "percorso", False)
+                    attrs["Ronda"] = getattr(zone_config, "ronda", False)
+                    attrs["Test"] = getattr(zone_config, "test", False)
+                    
+                    # Uscite associate
+                    attrs["Uscita A (Allarme 1)"] = getattr(zone_config, "uscita_a", False)
+                    attrs["Uscita K (Allarme 2)"] = getattr(zone_config, "uscita_k", False)
+                    attrs["Fuoco"] = getattr(zone_config, "fuoco", False)
+                    attrs["Campanello"] = getattr(zone_config, "campanello", False)
+                    attrs["Elettroserratura"] = getattr(zone_config, "elettroserratura", False)
+                else:
+                    # Attributi specifici zone radio
+                    attrs["Supervisionato"] = getattr(zone_config, "supervisionato", False)
+                    
+                    associazioni = getattr(zone_config, "associazioni_filari", [])
+                    attrs["Associazioni Filari"] = ", ".join(associazioni) if associazioni else "Nessuna"
         
         return attrs

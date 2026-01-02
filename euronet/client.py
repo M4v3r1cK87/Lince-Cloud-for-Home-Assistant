@@ -452,12 +452,12 @@ class EuroNetClient:
                 return response.text
             # HTTP non-200: logga come debug se è un redirect, error altrimenti
             if response.status_code in (301, 302, 303, 307, 308):
-                _LOGGER.debug(f"HTTP {response.status_code} redirect su {endpoint}")
+                _LOGGER.debug(f"HTTP {response.status_code} redirect su {endpoint} -> {response.url}")
             else:
-                _LOGGER.error(f"HTTP {response.status_code} su {endpoint}")
+                _LOGGER.warning(f"HTTP {response.status_code} su {endpoint}. Response: {response.text[:200]}")
             return None
         except requests.exceptions.RequestException as e:
-            _LOGGER.error(f"Errore connessione: {e}")
+            _LOGGER.warning(f"Errore connessione POST {endpoint}: {e}")
             return None
             
     def _get(self, endpoint: str, params: str = "") -> Optional[str]:
@@ -475,12 +475,12 @@ class EuroNetClient:
                 return response.text
             # HTTP non-200: logga come debug se è un redirect, error altrimenti
             if response.status_code in (301, 302, 303, 307, 308):
-                _LOGGER.debug(f"HTTP {response.status_code} redirect su {endpoint}")
+                _LOGGER.debug(f"HTTP {response.status_code} redirect su {endpoint} -> {response.url}")
             else:
-                _LOGGER.error(f"HTTP {response.status_code} su {endpoint}")
+                _LOGGER.warning(f"HTTP {response.status_code} su {endpoint}. Response: {response.text[:200]}")
             return None
         except requests.exceptions.RequestException as e:
-            _LOGGER.error(f"Errore connessione: {e}")
+            _LOGGER.warning(f"Errore connessione GET {endpoint}: {e}")
             return None
             
     def _parse_xml(self, xml_content: str) -> Optional[Dict[str, str]]:
@@ -1085,3 +1085,65 @@ class EuroNetClient:
         """
         stato = self.get_stato_centrale()
         return stato is not None
+    
+    # ========================================================================
+    # CONFIGURAZIONE ZONE (HTML SCRAPING)
+    # ========================================================================
+    
+    def get_zone_filare_config_html(self, numero: int) -> Optional[str]:
+        """
+        Ottiene l'HTML della pagina configurazione zona filare.
+        
+        Args:
+            numero: Numero zona (1-35)
+            
+        Returns:
+            HTML della pagina o None se errore
+        """
+        url = f"{self.base_url}/ingresso-filari.html?{numero}"
+        try:
+            response = self.session.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                # Verifica che non sia una pagina di loading o NoLogin
+                text = response.text
+                if "NoLogin" in response.url or "NoLogin" in text[:500]:
+                    _LOGGER.debug(f"Sessione scaduta su zona filare {numero}")
+                    return None
+                if "In attesa" in text:
+                    _LOGGER.debug(f"Pagina loading per zona filare {numero}")
+                    return None
+                return text
+            _LOGGER.debug(f"HTTP {response.status_code} per zona filare {numero}")
+            return None
+        except Exception as e:
+            _LOGGER.debug(f"Errore fetch zona filare {numero}: {e}")
+            return None
+    
+    def get_zone_radio_config_html(self, numero: int) -> Optional[str]:
+        """
+        Ottiene l'HTML della pagina configurazione zona radio.
+        
+        Args:
+            numero: Numero zona (1-64)
+            
+        Returns:
+            HTML della pagina o None se errore
+        """
+        url = f"{self.base_url}/ingresso-radio.html?{numero}"
+        try:
+            response = self.session.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                # Verifica che non sia una pagina di loading o NoLogin
+                text = response.text
+                if "NoLogin" in response.url or "NoLogin" in text[:500]:
+                    _LOGGER.debug(f"Sessione scaduta su zona radio {numero}")
+                    return None
+                if "In attesa" in text:
+                    _LOGGER.debug(f"Pagina loading per zona radio {numero}")
+                    return None
+                return text
+            _LOGGER.debug(f"HTTP {response.status_code} per zona radio {numero}")
+            return None
+        except Exception as e:
+            _LOGGER.debug(f"Errore fetch zona radio {numero}: {e}")
+            return None
