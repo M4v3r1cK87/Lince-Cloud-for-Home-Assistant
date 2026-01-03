@@ -6,15 +6,15 @@
 
 Integrazione Home Assistant per il controllo e monitoraggio delle centrali d'allarme **Lince**.
 
-> ⚠️ **ATTENZIONE - Serie GR868**: Se utilizzi una centrale **Lince GR868** con modulo EuroNET, l'intervallo di polling deve essere impostato ad **almeno 2000ms (2 secondi)**. Valori inferiori possono causare problemi di comunicazione, mancata risposta ai comandi e comportamenti anomali.
+> ⚠️ **ATTENZIONE - Serie GR868**: Se utilizzi una centrale **Lince GR868** con modulo EuroNET, l'intervallo di polling deve essere impostato ad **almeno 2s (2 secondi)**. Valori inferiori possono causare problemi di comunicazione, mancata risposta ai comandi e comportamenti anomali.
 
 ## 🎯 Centrali e Modalità Supportate
 
-| Centrale | Modalità Cloud | Modalità Locale (EuroNET) |
-|----------|:--------------:|:-------------------------:|
+| Centrale | Modalità Cloud | Modalità Locale (EuroNET) | Note |
+|----------|:--------------:|:-------------------------:|:----:|
 | **EuroPlus** | ✅ | ✅ |
 | **Gold** | ✅ (beta) | ❌ |
-| **GR868** | ❌ | ✅ |
+| **GR868** | ❌ | ✅ | Impostare intervallo di polling ad almeno 2 secondi |
 
 ---
 
@@ -55,7 +55,9 @@ Nuova modalità che sfrutta il modulo **EuroNET** (codice LINCE 4124EURONET) per
 - Centrale **EuroPlus** o **GR868**
 - Modulo **EuroNET** (LINCE 4124EURONET) installato e raggiungibile in LAN
 - Credenziali di accesso al modulo EuroNET
-- Codice installatore della centrale
+- Codice installatore della centrale, per alcune funzionalità avanzate (nomi e configurazioni zone)
+
+> ⚠️ **IMPORTANTE**: La modalità locale è esclusiva. Quando attiva in HA, non sarà possibile eseguire il login tramite browser nel modulo EuroNET; viceversa, se si è loggati nel modulo EuroNET, l'integrazione non funzionerà correttamente.
 
 ---
 

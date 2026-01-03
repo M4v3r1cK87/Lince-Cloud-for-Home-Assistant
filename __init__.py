@@ -130,8 +130,10 @@ async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntr
     # =========================================================================
     
     # Effettua login con codice installatore (se configurato)
+    # per caricare le configurazioni zone (nomi, tempi, programmi)
     # Retry fino a 3 volte con delay crescente per dare tempo alla centrale
     if installer_code:
+        login_success = False
         for attempt in range(3):
             try:
                 if attempt > 0:
@@ -142,11 +144,11 @@ async def _async_setup_local_entry(hass: HomeAssistant, config_entry: ConfigEntr
                     client.login, installer_code
                 )
                 if login_success:
-                    coordinator._session_valid = True
                     break
             except Exception as e:
                 _LOGGER.debug("Tentativo login %d fallito: %s", attempt + 1, e)
-        else:
+        
+        if not login_success:
             _LOGGER.warning("Login con codice installatore fallito dopo 3 tentativi")
     
     # Carica configurazioni zone (nomi, tipologie, tempi, ecc.)
@@ -386,9 +388,6 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry):
             new_polling = entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL_MS)
             if hasattr(coord, 'update_polling_interval'):
                 coord.update_polling_interval(new_polling)
-                # Resetta anche il cooldown per permettere un nuovo tentativo immediato
-                if hasattr(coord, 'reset_session_state'):
-                    coord.reset_session_state()
             
             # Verifica se il codice installatore è stato aggiunto/modificato
             # In questo caso forziamo il reload delle configurazioni zone

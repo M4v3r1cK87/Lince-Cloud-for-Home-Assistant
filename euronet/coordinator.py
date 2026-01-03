@@ -77,12 +77,7 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self.config_entry = config_entry
         self._systems: list[dict] = []
         
-        # Stato sessione web
-        self._session_valid = False
-        self._login_retry_count = 0
-        self._login_cooldown_until: float = 0  # Timestamp fino a cui attendere prima di riprovare
-        
-        # Cache configurazione zone (caricata una volta all'init)
+        # Cache configurazione zone (caricata una volta all'avvio/reload)
         self._zone_configs: Optional[ZoneConfigs] = None
         self._zone_configs_loaded = False
         self._zone_configs_complete = False  # True se tutte le zone sono state caricate
@@ -99,18 +94,6 @@ class EuroNetCoordinator(DataUpdateCoordinator):
             "EuroNET coordinator inizializzato con polling interval: %dms",
             polling_ms
         )
-    
-    async def async_request_refresh(self) -> None:
-        """Override per evitare refresh quando siamo in cooldown.
-        
-        Questo previene lo spam di log "Finished fetching" quando il login
-        fallisce e centinaia di entità si registrano contemporaneamente.
-        """
-        import time
-        if time.time() < self._login_cooldown_until:
-            # Siamo in cooldown, ignora silenziosamente la richiesta di refresh
-            return
-        await super().async_request_refresh()
     
     @property
     def num_zone_filari(self) -> int:
@@ -156,17 +139,6 @@ class EuroNetCoordinator(DataUpdateCoordinator):
         self._zone_configs_complete = False
         self._zone_config_retry_count = 0
         _LOGGER.debug("Cache configurazioni zone resettata")
-    
-    def reset_session_state(self) -> None:
-        """Resetta lo stato della sessione per permettere nuovi tentativi immediati.
-        
-        Chiamare questo metodo dopo un reload dell'integrazione per
-        evitare che il cooldown impedisca la riconnessione.
-        """
-        self._session_valid = False
-        self._login_retry_count = 0
-        self._login_cooldown_until = 0
-        _LOGGER.debug("Stato sessione resettato")
     
     def update_polling_interval(self, polling_ms: int) -> None:
         """Aggiorna l'intervallo di polling dinamicamente.
@@ -551,114 +523,26 @@ class EuroNetCoordinator(DataUpdateCoordinator):
                     self._zone_config_retry_task = asyncio.create_task(
                         self._schedule_zone_config_retry()
                     )
-        
-    async def _ensure_session(self) -> bool:
-        """Assicura che la sessione web sia valida, effettuando login se necessario.
-        
-        Implementa un cooldown esponenziale per evitare troppi tentativi ravvicinati
-        che potrebbero sovraccaricare la centrale. Riprova all'infinito con backoff.
-        
-        Returns:
-            True se la sessione è valida, False se in cooldown
-        """
-        import time
-        
-        if self._session_valid:
-            return True
-        
-        # Controlla cooldown - se siamo in cooldown, non riprovare
-        now = time.time()
-        if now < self._login_cooldown_until:
-            return False
-        
-        # Ottieni il codice installatore per il login
-        installer_code = getattr(self.client, 'installer_code', None) or ""
-        
-        if not installer_code:
-            # Senza codice installatore non possiamo accedere alle configurazioni zone
-            # ma possiamo comunque leggere lo stato base
-            _LOGGER.debug(
-                "Nessun codice installatore configurato - "
-                "le configurazioni zone non saranno disponibili"
-            )
-            self._session_valid = True  # Segna come valido per evitare retry continui
-            return True
-        
-        try:
-            success = await self.hass.async_add_executor_job(
-                self.client.login, installer_code
-            )
-            if success:
-                self._session_valid = True
-                self._login_retry_count = 0
-                self._login_cooldown_until = 0
-                return True
-            else:
-                self._login_retry_count += 1
-                # Cooldown progressivo: 5s, 10s, 20s, 40s, max 60s
-                cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 60)
-                self._login_cooldown_until = now + cooldown
-                _LOGGER.debug(
-                    "Login EuroNET fallito (tentativo %d). Prossimo tentativo tra %ds.",
-                    self._login_retry_count, cooldown
-                )
-                return False
-        except Exception as e:
-            self._login_retry_count += 1
-            cooldown = min(5 * (2 ** (self._login_retry_count - 1)), 60)
-            self._login_cooldown_until = now + cooldown
-            _LOGGER.debug("Errore login EuroNET: %s. Prossimo tentativo tra %ds.", e, cooldown)
-            return False
-    
-    def invalidate_session(self) -> None:
-        """Invalida la sessione corrente, forzando un re-login al prossimo update.
-        
-        Non resetta il contatore retry per evitare loop infiniti.
-        """
-        import time
-        # Non invalidare se siamo in cooldown (evita loop)
-        if time.time() < self._login_cooldown_until:
-            return
-        self._session_valid = False
 
     async def _async_update_data(self) -> list[dict[str, Any]]:
-        """Fetch data dalla centrale locale."""
-        import time
+        """Fetch data dalla centrale locale.
         
-        # Se siamo in cooldown login, lancia errore (entità diventano unavailable)
-        if time.time() < self._login_cooldown_until:
-            raise UpdateFailed("Login in cooldown - centrale non raggiungibile")
-        
+        NOTA: Il polling usa solo HTTP Basic Auth (già configurato nella sessione).
+        NON richiede il login con codice installatore - quello serve solo per:
+        - Caricare configurazioni zone (all'avvio/reload)
+        - Eseguire comandi arm/disarm
+        """
         try:
-            # Assicura che la sessione sia valida
-            if not await self._ensure_session():
-                # Login fallito - centrale non raggiungibile
-                raise UpdateFailed("Centrale non raggiungibile - login fallito")
-            
-            # Al primo update, carica le configurazioni delle zone
-            # ZoneConfigFetcherSync usa la stessa sessione del client,
-            # quindi non ci sono conflitti di sessione
-            if not self._zone_configs_loaded:
-                await self._async_load_zone_configs()
-            
             # Esegui operazioni sincrone in executor
+            # get_stato_centrale usa HTTP Basic Auth, non richiede codice installatore
             stato = await self.hass.async_add_executor_job(
                 self.client.get_stato_centrale
             )
             
             if not stato:
-                # Sessione potrebbe essere scaduta - invalida e riprova UNA volta
-                if self._session_valid:
-                    self.invalidate_session()
-                    # Tenta un re-login
-                    if await self._ensure_session():
-                        # Riprova a leggere lo stato
-                        stato = await self.hass.async_add_executor_job(
-                            self.client.get_stato_centrale
-                        )
-                
-                if not stato:
-                    raise UpdateFailed("Impossibile leggere stato centrale")
+                # Errore di comunicazione (rete, timeout, centrale occupata)
+                # NON è un problema di login con codice - non tentare re-login
+                raise UpdateFailed("Impossibile leggere stato centrale")
             
             # Leggi zone filari
             zone_filari = await self.hass.async_add_executor_job(
