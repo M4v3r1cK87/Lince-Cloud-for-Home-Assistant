@@ -2,6 +2,7 @@
 
 [![GitHub Release][releases-shield]][releases]
 [![GitHub Activity][commits-shield]][commits]
+![GitHub Stars][stars-shield]
 [![License][license-shield]](LICENSE)
 
 Integrazione Home Assistant per il controllo e monitoraggio delle centrali d'allarme **Lince**.
@@ -258,3 +259,4 @@ Il certificato SSL (`lince_cloud.pem`) è fornito solo per interoperabilità con
 [license-shield]: https://img.shields.io/github/license/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.svg?style=for-the-badge
 [releases-shield]: https://img.shields.io/github/release/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.svg?style=for-the-badge
 [releases]: https://github.com/M4v3r1cK87/Lince-Alarm-for-Home-Assistant/releases
+[stars-shield]: https://img.shields.io/github/stars/M4v3r1cK87/Lince-Alarm-for-Home-Assistant.svg?style=for-the-badge
